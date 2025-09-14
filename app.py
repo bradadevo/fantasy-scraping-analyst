@@ -20,20 +20,26 @@ def get_all_players_data():
     Returns: A list of dictionaries, where each dictionary is a player's profile.
     """
     current_year = datetime.now().year
-    url = f"https://fantasy.espn.com/apis/v3/games/ffl/seasons/{current_year}/players?view=players_wl"
+    # Updated to a different ESPN endpoint that is known to return a player list
+    url = f"https://fantasy.espn.com/apis/v3/games/ffl/seasons/{current_year}/players"
     headers = {
-        'User-Agent': 'Mozilla/5.0'
+        'User-Agent': 'Mozilla/5.0',
+        # This header is needed to bypass an authentication error on some ESPN endpoints
+        'X-Fantasy-Filter': '{"players":{"limit":1000,"filterActive":{"value":true}}}'
     }
     
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        # The ESPN API returns a list of players under the 'players' key
-        players_data = response.json().get('players', [])
-        
-        # Each player's data is nested; we need to extract the core 'player' dictionary
-        return [p['player'] for p in players_data if 'player' in p]
+        if 'application/json' in response.headers.get('Content-Type', ''):
+            players_data = response.json().get('players', [])
+            
+            # The JSON structure for this endpoint is different
+            return [p for p in players_data if 'stats' in p]
+        else:
+            st.error("The API did not return a valid JSON response. It may be temporarily unavailable or the endpoint has changed.")
+            return []
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching player data from ESPN API: {e}")
         return []
@@ -44,7 +50,8 @@ def get_player_list_options(all_players):
     wr_te_players = [
         f'{player.get("fullName")} ({player.get("proTeamId")})'
         for player in all_players
-        if player.get("defaultPositionId") in [3, 4, 5, 6, 7] # Mapping for ESPN positions
+        # Position ID mapping for ESPN: 3 (WR), 5 (TE)
+        if player.get("defaultPositionId") in [3, 5]
     ]
     wr_te_players.sort()
     return wr_te_players
@@ -65,17 +72,17 @@ def get_player_stats(selected_players, all_players):
                 "Player Name": stats.get("fullName"),
                 "Team": stats.get("proTeamId"),
                 "Position": stats.get("position"),
-                "Receptions": stats.get("stats", {}).get("21", 0),  # ESPN stats are by ID, 21 is receptions
-                "ReceivingYards": stats.get("stats", {}).get("42", 0), # 42 is receiving yards
-                "ReceivingTouchdowns": stats.get("stats", {}).get("45", 0), # 45 is receiving touchdowns
-                "RushingYards": stats.get("stats", {}).get("4", 0), # 4 is rushing yards
-                "RushingTouchdowns": stats.get("stats", {}).get("5", 0), # 5 is rushing touchdowns
-                "FumblesLost": stats.get("stats", {}).get("24", 0), # 24 is fumbles lost
+                # The stats IDs from the previous endpoint may not exist here
+                "Receptions": stats.get("stats", {}).get("21", 0),
+                "ReceivingYards": stats.get("stats", {}).get("42", 0),
+                "ReceivingTouchdowns": stats.get("stats", {}).get("45", 0),
+                "RushingYards": stats.get("stats", {}).get("4", 0),
+                "RushingTouchdowns": stats.get("stats", {}).get("5", 0),
+                "FumblesLost": stats.get("stats", {}).get("24", 0),
             }
             player_stats_data[player_full_name] = reformatted_stats
         
     return player_stats_data
-
 
 # --- AI SUMMARY (Gemini) ---
 def generate_ai_summary(player_stats_dict):
