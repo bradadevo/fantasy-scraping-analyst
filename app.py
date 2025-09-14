@@ -8,53 +8,43 @@ from datetime import datetime
 # --- SETUP GEMINI WITH STREAMLIT SECRETS ---
 try:
     genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
+    # IMPORTANT: Use a SportsData.io API key here
+    SPORTS_DATA_API_KEY = st.secrets['SPORTS_DATA_API_KEY']
 except KeyError:
-    st.error("GEMINI_API_KEY not found. Please add it to your Streamlit secrets.")
+    st.error("API keys not found. Please add them to your Streamlit secrets.")
     st.stop()
 
-# --- DATA FETCHING FROM ESPN FANTASY API ---
-@st.cache_data(ttl=3600)
+# --- DATA FETCHING FROM SPORTSDATA.IO ---
+@st.cache_data(ttl=86400)
 def get_all_players_data():
     """
-    Fetches a comprehensive list of all active NFL players with stats from ESPN's unofficial API.
+    Fetches a complete list of all NFL players with stats from SportsData.io.
     Returns: A list of dictionaries, where each dictionary is a player's profile.
     """
-    current_year = datetime.now().year
-    url = f"https://fantasy.espn.com/apis/v3/games/ffl/seasons/{current_year}/players"
-    headers = {
-        'User-Agent': 'Mozilla/5.0',
-        'X-Fantasy-Filter': '{"players":{"limit":1000,"filterActive":{"value":true}}}'
-    }
-    
     try:
+        url = "https://api.sportsdata.io/v3/nfl/scores/json/Players"
+        headers = {
+            'Ocp-Apim-Subscription-Key': SPORTS_DATA_API_KEY,
+        }
+        
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        # FIX: Check if the response content is not empty before parsing
-        if response.content:
-            try:
-                # Check if the content is valid JSON
-                players_data = response.json().get('players', [])
-                
-                # The JSON structure for this endpoint is different
-                return [p for p in players_data if 'stats' in p]
-            except json.JSONDecodeError:
-                st.error("The API returned an invalid JSON response. This may be a temporary issue with the endpoint.")
-                return []
-        else:
-            st.error("The API returned an empty response. It may be temporarily unavailable.")
-            return []
+        return response.json()
     except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching player data from ESPN API: {e}")
+        if e.response is not None:
+            st.error(f"HTTP Error: Status Code {e.response.status_code} - URL: {e.request.url}")
+        else:
+            st.error(f"Network Error: {e}")
         return []
 
 # --- Function to Get Player List for Multiselect (remains unchanged) ---
 def get_player_list_options(all_players):
     """Filters the full player data for WRs and TEs to populate the multiselect."""
     wr_te_players = [
-        f'{player.get("fullName")} ({player.get("proTeamId")})'
+        f'{player.get("Name")} ({player.get("Team")})'
         for player in all_players
-        if player.get("defaultPositionId") in [3, 5]
+        if player.get("Position") in ["WR", "TE"] and player.get("Status") == "Active"
     ]
     wr_te_players.sort()
     return wr_te_players
@@ -64,21 +54,22 @@ def get_player_stats(selected_players, all_players):
     """Filters the all_players data to get detailed stats for selected players."""
     player_stats_data = {}
     
-    player_lookup = {f'{p.get("fullName")} ({p.get("proTeamId")})': p for p in all_players}
+    player_lookup = {f'{p.get("Name")} ({p.get("Team")})': p for p in all_players}
     
     for player_full_name in selected_players:
         stats = player_lookup.get(player_full_name)
         if stats:
+            # Reformat the stats to match the expected format for the AI prompt
             reformatted_stats = {
-                "Player Name": stats.get("fullName"),
-                "Team": stats.get("proTeamId"),
-                "Position": stats.get("position"),
-                "Receptions": stats.get("stats", {}).get("21", 0),
-                "ReceivingYards": stats.get("stats", {}).get("42", 0),
-                "ReceivingTouchdowns": stats.get("stats", {}).get("45", 0),
-                "RushingYards": stats.get("stats", {}).get("4", 0),
-                "RushingTouchdowns": stats.get("stats", {}).get("5", 0),
-                "FumblesLost": stats.get("stats", {}).get("24", 0),
+                "Player Name": stats.get("Name"),
+                "Team": stats.get("Team"),
+                "Position": stats.get("Position"),
+                "Receptions": stats.get("Receptions", 0),
+                "ReceivingYards": stats.get("ReceivingYards", 0),
+                "ReceivingTouchdowns": stats.get("ReceivingTouchdowns", 0),
+                "RushingYards": stats.get("RushingYards", 0),
+                "RushingTouchdowns": stats.get("RushingTouchdowns", 0),
+                "FumblesLost": stats.get("FumblesLost", 0),
             }
             player_stats_data[player_full_name] = reformatted_stats
         
@@ -110,12 +101,13 @@ def generate_ai_summary(player_stats_dict):
 # --- STREAMLIT APP LAYOUT ---
 st.set_page_config(page_title="Fantasy Football Analyst", layout="wide")
 st.title("🏈 Fantasy Football Player Analyst")
-st.write("Using ESPN data with **AI-powered reasoning** by Gemini.")
+st.write("Using SportsData.io data with **AI-powered reasoning** by Gemini.")
 
+# Fetch all players once and cache the result
 all_players_data = get_all_players_data()
 
 if not all_players_data:
-    st.warning("Could not load the full player list. The ESPN API may be temporarily down or its structure has changed. Please try again later.")
+    st.warning("Could not load the full player list from SportsData.io. Please check your API key and try again.")
     st.stop()
 else:
     PLAYER_OPTIONS = get_player_list_options(all_players_data)
