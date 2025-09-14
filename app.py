@@ -20,11 +20,9 @@ def get_all_players_data():
     Returns: A list of dictionaries, where each dictionary is a player's profile.
     """
     current_year = datetime.now().year
-    # Updated to a different ESPN endpoint that is known to return a player list
     url = f"https://fantasy.espn.com/apis/v3/games/ffl/seasons/{current_year}/players"
     headers = {
         'User-Agent': 'Mozilla/5.0',
-        # This header is needed to bypass an authentication error on some ESPN endpoints
         'X-Fantasy-Filter': '{"players":{"limit":1000,"filterActive":{"value":true}}}'
     }
     
@@ -32,13 +30,19 @@ def get_all_players_data():
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
-        if 'application/json' in response.headers.get('Content-Type', ''):
-            players_data = response.json().get('players', [])
-            
-            # The JSON structure for this endpoint is different
-            return [p for p in players_data if 'stats' in p]
+        # FIX: Check if the response content is not empty before parsing
+        if response.content:
+            try:
+                # Check if the content is valid JSON
+                players_data = response.json().get('players', [])
+                
+                # The JSON structure for this endpoint is different
+                return [p for p in players_data if 'stats' in p]
+            except json.JSONDecodeError:
+                st.error("The API returned an invalid JSON response. This may be a temporary issue with the endpoint.")
+                return []
         else:
-            st.error("The API did not return a valid JSON response. It may be temporarily unavailable or the endpoint has changed.")
+            st.error("The API returned an empty response. It may be temporarily unavailable.")
             return []
     except requests.exceptions.RequestException as e:
         st.error(f"Error fetching player data from ESPN API: {e}")
@@ -50,7 +54,6 @@ def get_player_list_options(all_players):
     wr_te_players = [
         f'{player.get("fullName")} ({player.get("proTeamId")})'
         for player in all_players
-        # Position ID mapping for ESPN: 3 (WR), 5 (TE)
         if player.get("defaultPositionId") in [3, 5]
     ]
     wr_te_players.sort()
@@ -61,18 +64,15 @@ def get_player_stats(selected_players, all_players):
     """Filters the all_players data to get detailed stats for selected players."""
     player_stats_data = {}
     
-    # Create a lookup dictionary for efficient searching
     player_lookup = {f'{p.get("fullName")} ({p.get("proTeamId")})': p for p in all_players}
     
     for player_full_name in selected_players:
         stats = player_lookup.get(player_full_name)
         if stats:
-            # Reformat the stats to match the expected format for the AI prompt
             reformatted_stats = {
                 "Player Name": stats.get("fullName"),
                 "Team": stats.get("proTeamId"),
                 "Position": stats.get("position"),
-                # The stats IDs from the previous endpoint may not exist here
                 "Receptions": stats.get("stats", {}).get("21", 0),
                 "ReceivingYards": stats.get("stats", {}).get("42", 0),
                 "ReceivingTouchdowns": stats.get("stats", {}).get("45", 0),
@@ -95,7 +95,6 @@ def generate_ai_summary(player_stats_dict):
         return "No player data was found to generate an AI summary."
         
     for player, stats in valid_players.items():
-        # Create a DataFrame for each player for clean formatting in the prompt
         df = pd.DataFrame([stats])
         prompt += f"\n### {player}\n{df.to_string(index=False)}\n"
 
@@ -113,7 +112,6 @@ st.set_page_config(page_title="Fantasy Football Analyst", layout="wide")
 st.title("🏈 Fantasy Football Player Analyst")
 st.write("Using ESPN data with **AI-powered reasoning** by Gemini.")
 
-# Fetch all players once and cache the result
 all_players_data = get_all_players_data()
 
 if not all_players_data:
