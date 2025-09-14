@@ -4,6 +4,7 @@ import json
 import requests
 import google.generativeai as genai
 from datetime import datetime
+import pandas as pd
 
 # --- SETUP GEMINI WITH STREAMLIT SECRETS ---
 try:
