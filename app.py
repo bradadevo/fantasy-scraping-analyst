@@ -36,9 +36,18 @@ def get_player_data(player_name):
     table = soup.find("table", {"id": "proj-stats"})
 
     if not table:
-        st.warning(f"Could not find the stats table for {player_name}. The player may not exist or the website structure has changed.")
+        # Fallback to look for a different table if the primary one isn't found.
+        # This is often needed for QB pages, which might have different table IDs.
+        st.warning(f"Could not find the main stats table for {player_name}. Searching for an alternative.")
+        table = soup.find("div", {"id": "data-grid-container"})
+        if table:
+            # If an alternative is found, try to extract the table from its HTML content
+            try:
+                df = pd.read_html(str(table))[0]
+                return df
+            except:
+                return None
         return None
-
     try:
         df = pd.read_html(str(table))[0]
         return df
