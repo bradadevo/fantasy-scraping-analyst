@@ -1,3 +1,5 @@
 streamlit
-google-generativeai
+beautifulsoup4
+pandas
 requests
+google-generativeai
