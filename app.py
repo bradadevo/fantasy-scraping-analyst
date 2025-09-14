@@ -1,40 +1,53 @@
-
-Brad DeVore <bradadevore@gmail.com>
-5:51 AM (0 minutes ago)
-to me
-
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import google.generativeai as genai
+from datetime import datetime
 
 # -------------------------------
 # SETUP GEMINI WITH STREAMLIT SECRETS
 # -------------------------------
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+try:
+    genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except KeyError:
+    st.error("GEMINI_API_KEY not found. Please add it to your Streamlit secrets.")
+    st.stop()
 
 # -------------------------------
-# SCRAPE PLAYER DATA (FantasyPros example)
+# SCRAPE PLAYER DATA (more robust version)
 # -------------------------------
+@st.cache_data(ttl=3600)
 def get_player_data(player_name):
-    search_url = f"https://www.fantasypros.com/nfl/players/{player_name.replace(' ', '-')}.php"
+    formatted_name = player_name.lower().replace(' ', '-')
+    search_url = f"https://www.fantasypros.com/nfl/players/{formatted_name}.php"
+    
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(search_url, headers=headers)
-
-    if response.status_code != 200:
+    
+    try:
+        response = requests.get(search_url, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error fetching data for {player_name}: {e}")
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
-
-    # Example scrape: projections table
     table = soup.find("table", {"id": "proj-stats"})
+
     if not table:
+        st.warning(f"Could not find the stats table for {player_name}. The player may not exist or the website structure has changed.")
         return None
 
-    df = pd.read_html(str(table))[0]
-    return df
+    try:
+        df = pd.read_html(str(table))[0]
+        return df
+    except IndexError:
+        st.warning(f"No tables found on the page for {player_name}.")
+        return None
+    except Exception as e:
+        st.error(f"An error occurred while parsing the table for {player_name}: {e}")
+        return None
 
 # -------------------------------
 # AI SUMMARY (Gemini)
@@ -42,40 +55,46 @@ def get_player_data(player_name):
 @st.cache_data(show_spinner=False)
 def generate_ai_summary(player_stats_dict):
     prompt = "You are an expert fantasy football analyst. Compare these players using the tables below:\n\n"
-    for player, df in player_stats_dict.items():
-        if df is not None:
+    
+    valid_players = {player: df for player, df in player_stats_dict.items() if df is not None}
+    
+    if not valid_players:
+        return "No player data was found to generate an AI summary."
+        
+    for player, df in valid_players.items():
+        if not df.empty:
             prompt += f"\n### {player}\n{df.to_string(index=False)}\n"
 
     prompt += "\nGive a clear summary of who has the best outlook this week and why. Keep it concise but insightful."
 
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"An error occurred while generating the AI summary: {e}"
 
 # -------------------------------
-# STREAMLIT APP
+# STREAMLIT APP LAYOUT
 # -------------------------------
 st.title("🏈 Fantasy Football Player Evaluator")
 st.write("Scraped stats + **AI-powered reasoning** with Gemini.")
 
-# Input players
-players = st.text_input("Enter player names (comma separated):", "Patrick Mahomes, Josh Allen")
+players_input = st.text_input("Enter player names (comma separated):", "Patrick Mahomes, Josh Allen")
 
 if st.button("Evaluate Players"):
-    player_list = [p.strip() for p in players.split(",")]
+    player_list = [p.strip() for p in players_input.split(",")]
     player_stats = {}
 
     for player in player_list:
         st.subheader(player)
-        df = get_player_data(player.lower())
+        df = get_player_data(player)
         if df is not None:
             st.dataframe(df)
-        else:
-            st.warning(f"No data found for {player}")
         player_stats[player] = df
 
-    # AI Summary
     with st.spinner("Analyzing with AI..."):
         ai_summary = generate_ai_summary(player_stats)
 
-    st.markdown("## 🤖 AI Summary (Gemini)")
+    st.markdown("---")
+    st.markdown("## AI Summary (Gemini)")
     st.write(ai_summary)
