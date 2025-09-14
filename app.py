@@ -37,10 +37,12 @@ def get_player_stats(selected_players, all_players):
         for player_full_name in selected_players:
             player_info = player_lookup.get(player_full_name)
             if not player_info:
+                print(f"Player '{player_full_name}' not found in the initial player list.")
                 continue
 
             player_id = player_info.get("PlayerID")
             if not player_id:
+                print(f"Player ID not found for '{player_full_name}'. Skipping.")
                 continue
 
             # This is the correct endpoint for seasonal statistics
@@ -66,9 +68,11 @@ def get_player_stats(selected_players, all_players):
                     "FumblesLost": stats_data.get("FumblesLost", 0),
                 }
                 player_stats_data[player_full_name] = combined_stats
+            else:
+                print(f"Empty or invalid data returned for player stats for '{player_full_name}'.")
 
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching stats: {e}")
+        print(f"Error fetching stats for '{player_full_name}': {e}")
         return {}
     
     return player_stats_data
