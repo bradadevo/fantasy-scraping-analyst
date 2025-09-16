@@ -13,7 +13,6 @@ from google.genai import types
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
-    # Set the API key using the new SDK's method
     genai.api_key = st.secrets['GEMINI_API_KEY']
     
     MCP_SERVER_URL = st.secrets['MCP_SERVER_URL']
@@ -124,9 +123,15 @@ if user_prompt:
                 f"\n\nUser Question: {user_prompt}"
             )
 
-            # Start a chat session with the model and tools
-            model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
-            response = model.generate_content(context_prompt)
+            # Use the new syntax for the model instance and generate content
+            # The model is now passed as an argument to generate_content
+            response = genai.generate_content(
+                model="gemini-1.5-flash", 
+                contents=[
+                    types.Part.from_text(context_prompt),
+                ], 
+                tools=tool_declarations
+            )
             
             function_call = response.candidates[0].content.parts[0].function_call
 
@@ -143,8 +148,9 @@ if user_prompt:
                     status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
                     
                 with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
-                    response_with_tool_output = model.generate_content(
-                        [
+                    response_with_tool_output = genai.generate_content(
+                        model="gemini-1.5-flash",
+                        contents=[
                             types.Part.from_function_response(
                                 name="get_player_stats_from_mcp",
                                 response={"content": tool_output}
