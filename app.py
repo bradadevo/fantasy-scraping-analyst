@@ -190,8 +190,7 @@ tool_declarations = [
                         },
                         "include_stats": {
                             "type": "boolean",
-                            "description": "Whether to include detailed statistics for the player. Default is true.",
-                            "default": True
+                            "description": "Whether to include detailed statistics for the player. Default is true."
                         }
                     },
                     "required": ["firstName", "lastName"]
