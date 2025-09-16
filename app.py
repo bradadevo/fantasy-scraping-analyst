@@ -143,15 +143,17 @@ if user_prompt:
                         status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
                         
                     with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
-                        # Use the correct syntax for function response
-                        response_with_tool_output = model.generate_content(
-                            [
-                                genai.types.content.Part.from_function_response(
-                                    name="get_player_stats_from_mcp",
-                                    response={"content": tool_output}
-                                )
-                            ]
-                        )
+                        # Generate final response with the tool output data
+                        final_prompt = f"""
+                        Based on the user's question: "{user_prompt}"
+                        
+                        And the following data about the player:
+                        {tool_output}
+                        
+                        Please provide a comprehensive analysis answering the user's question about this player.
+                        """
+                        
+                        response_with_tool_output = model.generate_content(final_prompt)
                         status.update(label="Report generated!", state="complete")
 
                     st.markdown("---")
