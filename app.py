@@ -314,76 +314,7 @@ def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
         st.error(f"Error fetching player injuries: {e}")
         return {"error": str(e)}
 
-def get_nfl_player_weekly_stats(firstName: str, lastName: str, season: int, weeks: list = None):
-    """
-    Get player stats for specific weeks of a season
-    """
-    try:
-        with st.expander("📅 Weekly Stats Fetching Details", expanded=False):
-            st.info(f"🏈 Fetching weekly stats for {firstName} {lastName} in {season}...")
-            
-            # First get the player to find their ID
-            player_data = get_player_stats_from_api(firstName, lastName, include_stats=False)
-            players = json.loads(player_data)
-            
-            if isinstance(players, dict) and players.get('error'):
-                return player_data  # Return the error
-            
-            if not players or len(players) == 0:
-                return json.dumps({"error": "No player found to get weekly stats for"})
-            
-            player = players[0]  # Use first match
-            player_id = player.get('id')
-            
-            if not player_id:
-                return json.dumps({"error": "Player ID not found"})
-            
-            # Build parameters for weekly stats query
-            params = {
-                "player_ids[]": player_id,
-                "seasons[]": str(season)
-            }
-            
-            if weeks:
-                params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
-                st.info(f"📅 Fetching stats for weeks: {weeks}")
-            else:
-                st.info(f"📅 Fetching all weekly stats for {season} season")
-            
-            # Make API call for stats
-            stats_data = make_api_request("stats", params)
-            
-            if stats_data.get('data') and len(stats_data['data']) > 0:
-                st.success(f"✅ Found {len(stats_data['data'])} weekly stat records!")
-                
-                # Organize stats by week
-                weekly_stats = {}
-                for stat in stats_data['data']:
-                    week = stat.get('week', 'Unknown')
-                    if week not in weekly_stats:
-                        weekly_stats[week] = []
-                    weekly_stats[week].append(stat)
-                
-                result = {
-                    "player": player,
-                    "season": season,
-                    "weekly_stats": weekly_stats,
-                    "total_weeks": len(weekly_stats)
-                }
-                
-                st.info(f"📊 Weekly breakdown: {list(weekly_stats.keys())}")
-                return json.dumps(result)
-            else:
-                return json.dumps({
-                    "player": player,
-                    "season": season,
-                    "weekly_stats": {},
-                    "message": f"No weekly statistics available for {firstName} {lastName} in {season}"
-                })
-            
-    except Exception as e:
-        st.error(f"Error fetching weekly stats: {e}")
-        return json.dumps({"error": str(e)})
+
 
 def get_comprehensive_player_analysis(firstName: str, lastName: str):
     """
@@ -786,33 +717,6 @@ tool_declarations = [
                 }
             },
             {
-                "name": "get_nfl_player_weekly_stats",
-                "description": "Gets player statistics for specific weeks of a season. Use this when users ask about week 1, week 2, specific weeks, or weekly performance data.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {
-                            "type": "string",
-                            "description": "The first name of the NFL player."
-                        },
-                        "lastName": {
-                            "type": "string",
-                            "description": "The last name of the NFL player."
-                        },
-                        "season": {
-                            "type": "integer",
-                            "description": "The NFL season year (e.g., 2025, 2024, 2023)"
-                        },
-                        "weeks": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of week numbers to get stats for (e.g., [1, 2, 3] for weeks 1-3). If not provided, gets all weeks."
-                        }
-                    },
-                    "required": ["firstName", "lastName", "season"]
-                }
-            },
-            {
                 "name": "get_nfl_games",
                 "description": "Gets NFL games with filtering options including specific weeks, seasons, teams. Use this for game schedules, matchups, and game-specific data.",
                 "parameters": {
@@ -853,7 +757,7 @@ if 'selected_prompt' not in st.session_state:
 if 'submitted_prompt' not in st.session_state:
     st.session_state.submitted_prompt = ""
 
-# Enhanced input field styling
+# --- AI Search Box ---
 st.markdown("""
 <div style="
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -864,7 +768,7 @@ st.markdown("""
     color: white;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 ">
-    <h3 style="margin: 0; font-size: 1.8em;">🔍 Ask Your NFL Question</h3>
+    <h2 style="margin: 0; font-size: 2.2em;">🔍 AI Search Box</h2>
     <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Get instant analysis on any NFL player, team, or stat</p>
 </div>
 """, unsafe_allow_html=True)
@@ -952,8 +856,8 @@ with col2:
 with col3:
     st.markdown("**⭐ Rising Stars & Legends**")
     if st.button("🌟 C.J. Stroud Stats", use_container_width=True):
-        st.session_state.selected_prompt = "Enter your search criteria here!"
-        st.session_state.submitted_prompt = "Enter your search criteria here!"
+        st.session_state.selected_prompt = "Enter your search here"
+        st.session_state.submitted_prompt = "Enter your search here"
         st.rerun()
     if st.button("💨 Tyreek Hill Analysis", use_container_width=True):
         st.session_state.selected_prompt = "Show me Tyreek Hill's receiving stats"
@@ -982,7 +886,6 @@ if st.session_state.get('submitted_prompt'):
                 "- `get_player_stats_from_api` - Basic player info, team, position, and stats\n"
                 "- `get_player_stats_only` - Just statistical data for a player\n" 
                 "- `get_comprehensive_player_analysis` - Complete analysis including season stats, advanced metrics, injury status, and team info\n"
-                "- `get_nfl_player_weekly_stats` - Get player stats for specific weeks (USE THIS for week 1, week 2, etc. questions)\n"
                 "\n"
                 "TEAM & LEAGUE TOOLS:\n"
                 "- `get_nfl_teams` - Get team information, filter by division or conference\n"
@@ -993,7 +896,7 @@ if st.session_state.get('submitted_prompt'):
                 "TOOL SELECTION GUIDELINES:\n"
                 "- For basic player questions → use `get_player_stats_from_api`\n"
                 "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
-                "- For WEEKLY DATA (week 1, week 2, etc.) → use `get_nfl_player_weekly_stats`\n"
+                "- For weekly data (week 1, week 2, etc.) → use `get_nfl_games` with week filters\n"
                 "- For team comparisons → use `get_nfl_teams` and `get_nfl_season_stats`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
                 "- For game schedules/matchups → use `get_nfl_games`\n"
