@@ -75,10 +75,23 @@ def get_player_stats_from_mcp(league: str, first_name: str, last_name: str):
             firstName=first_name,
             lastName=last_name
         ))
+        
+        # --- Debugging and Error Handling for the MCP response ---
+        if not data:
+            st.error(f"MCP server returned no data for {first_name} {last_name}.")
+            # Return an empty JSON object that Gemini can process without an error
+            return json.dumps([])
+        
+        # Check if the data is a list of player stats
+        if not isinstance(data, list) or len(data) == 0:
+            st.error(f"MCP server returned an invalid data format for {first_name} {last_name}.")
+            st.write("Raw data from MCP server:", data)
+            return json.dumps([])
+
         return json.dumps(data)
     except Exception as e:
-        st.error(f"Error fetching data from MCP: {e}")
-        return json.dumps({"error": str(e)})
+        st.error(f"An error occurred while fetching from MCP: {e}")
+        return json.dumps([])
 
 # --- TOOL DECLARATION FOR GEMINI ---
 # This dictionary describes the Python function to Gemini
@@ -141,51 +154,4 @@ else:
                         # Parse the player name into first and last name
                         full_name = player_name.split(' (')[0]
                         name_parts = full_name.split()
-                        first_name = name_parts[0] if len(name_parts) > 0 else ""
-                        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
-
-                        # --- The Prompt to Trigger Gemini's Tool Call ---
-                        prompt_text = (
-                            f"Act as a fantasy football analyst. I need a report on the NFL player {full_name}. "
-                            "Use your available tools to get their detailed stats. "
-                            "Analyze their fantasy value for the remainder of the season based on their statistics. "
-                            "Present the information in a single, comprehensive data table with the following columns: "
-                            "Player Name, Team, Position, Receptions, ReceivingYards, ReceivingTouchdowns, RushingYards, RushingTouchdowns, FumblesLost, and OverallFantasyFootballValue. "
-                            "Sort the table by highest to lowest ReceivingYards."
-                        )
-
-                        # Start a chat session with the model and tools
-                        model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
-
-                        # Send the prompt and get a response
-                        response = model.generate_content(prompt_text)
-                        
-                        # Handle the potential function call
-                        function_call = response.candidates[0].content.parts[0].function_call
-
-                        if function_call:
-                            # --- Execute the tool and get data from MCP ---
-                            tool_output = get_player_stats_from_mcp(
-                                league="NFL",
-                                first_name=first_name,
-                                last_name=last_name
-                            )
-                            
-                            # --- Send the tool output back to Gemini for final reasoning ---
-                            response_with_tool_output = model.generate_content(
-                                genai.types.FunctionResponse(
-                                    name="get_player_stats_from_mcp",
-                                    response={"content": tool_output}
-                                )
-                            )
-                            
-                            st.markdown("---")
-                            st.subheader(f"Report for {full_name}")
-                            st.markdown(response_with_tool_output.text)
-                            
-                        else:
-                            st.error(f"Gemini did not request a tool call for {full_name}. Here is its direct response:")
-                            st.markdown(response.text)
-
-                except Exception as e:
-                    st.error(f"An error occurred: {e}")
+                        first_
