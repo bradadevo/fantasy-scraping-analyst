@@ -124,9 +124,8 @@ if user_prompt:
             )
 
             # Use the new syntax for the model instance and generate content
-            # The model is now passed as an argument to generate_content
             response = genai.generate_content(
-                model="gemini-1.5-flash", 
+                model_name="gemini-1.5-flash", 
                 contents=[
                     types.Part.from_text(context_prompt),
                 ], 
@@ -149,7 +148,7 @@ if user_prompt:
                     
                 with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
                     response_with_tool_output = genai.generate_content(
-                        model="gemini-1.5-flash",
+                        model_name="gemini-1.5-flash",
                         contents=[
                             types.Part.from_function_response(
                                 name="get_player_stats_from_mcp",
