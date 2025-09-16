@@ -102,29 +102,144 @@ def make_api_request(endpoint, params=None):
     return response_data
 
 # --- STREAMLIT APP LAYOUT ---
-st.set_page_config(page_title="NFL Player Analyst", layout="wide")
+st.set_page_config(page_title="NFL Player Analyst", layout="wide", page_icon="🏈")
+
+# Custom CSS for better table styling and visual enhancements
+st.markdown("""
+<style>
+    /* Custom styling for better visual experience */
+    .main-header {
+        text-align: center;
+        color: #1f4e79;
+        font-size: 3em;
+        margin-bottom: 20px;
+    }
+    
+    /* Enhanced table styling */
+    .stMarkdown table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 14px;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .stMarkdown table th {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        font-weight: bold;
+        padding: 15px 12px;
+        text-align: left;
+        border-bottom: 2px solid #ddd;
+    }
+    
+    .stMarkdown table td {
+        padding: 12px;
+        border-bottom: 1px solid #ddd;
+        background-color: rgba(255, 255, 255, 0.8);
+    }
+    
+    .stMarkdown table tr:hover td {
+        background-color: rgba(102, 126, 234, 0.1);
+        transition: background-color 0.3s ease;
+    }
+    
+    /* Metric cards styling */
+    .metric-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 20px;
+        border-radius: 15px;
+        color: white;
+        text-align: center;
+        margin: 10px 0;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Enhanced button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-weight: bold;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Info boxes styling */
+    .stInfo {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        border-left: 5px solid #667eea;
+        border-radius: 10px;
+    }
+    
+    /* Success boxes styling */
+    .stSuccess {
+        background: linear-gradient(135deg, #d299c2 0%, #fef9d7 100%);
+        border-left: 5px solid #28a745;
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🏈 NFL Player Analyst")
 st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
 st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
 
 # --- RATE LIMITING DASHBOARD ---
+st.markdown("### 📊 API Rate Limiting Dashboard")
 current_time = time.time()
 recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
 calls_remaining = 60 - len(recent_calls)
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("API Calls (Last Minute)", len(recent_calls), help="Number of API calls made in the last 60 seconds")
+    # Color code based on usage
+    delta_color = "normal" if len(recent_calls) < 30 else "inverse"
+    st.metric(
+        "🔥 API Calls (Last Minute)", 
+        len(recent_calls), 
+        delta=f"of 60 max",
+        delta_color=delta_color,
+        help="Number of API calls made in the last 60 seconds"
+    )
 with col2:
-    st.metric("Calls Remaining", calls_remaining, help="Remaining API calls before rate limit")
+    # Color code remaining calls
+    remaining_color = "normal" if calls_remaining > 20 else "inverse"
+    st.metric(
+        "⚡ Calls Remaining", 
+        calls_remaining, 
+        delta=f"{round((calls_remaining/60)*100)}% available",
+        delta_color=remaining_color,
+        help="Remaining API calls before rate limit"
+    )
 with col3:
     cache_size = len(st.session_state.api_cache)
-    st.metric("Cached Responses", cache_size, help="Number of cached API responses (reduces future calls)")
+    st.metric(
+        "📋 Cached Responses", 
+        cache_size, 
+        delta="saves API calls",
+        help="Number of cached API responses (reduces future calls)"
+    )
 
+# Visual status indicators
 if calls_remaining < 10:
-    st.warning(f"⚠️ Only {calls_remaining} API calls remaining this minute. The app will automatically wait to avoid rate limits.")
+    st.error(f"🚨 **CRITICAL**: Only {calls_remaining} API calls remaining this minute! The app will automatically wait to avoid rate limits.")
 elif calls_remaining < 20:
-    st.info(f"🟡 {calls_remaining} API calls remaining this minute.")
+    st.warning(f"⚠️ **WARNING**: {calls_remaining} API calls remaining this minute. Consider using cached data.")
+elif calls_remaining < 40:
+    st.info(f"🟡 **MODERATE**: {calls_remaining} API calls remaining this minute.")
+else:
+    st.success(f"🟢 **HEALTHY**: {calls_remaining} API calls remaining this minute. Ready for queries!")
 
 st.markdown("---")
 
@@ -614,69 +729,128 @@ st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comp
 if 'selected_prompt' not in st.session_state:
     st.session_state.selected_prompt = ""
 
-user_prompt = st.text_input(
-    "Enter your question here:",
-    placeholder="e.g., What were the stats for Patrick Mahomes last season?",
-    value=st.session_state.selected_prompt
-)
+if 'submitted_prompt' not in st.session_state:
+    st.session_state.submitted_prompt = ""
 
-# Clear button for better UX
-if st.button("🗑️ Clear", help="Clear the input field"):
-    st.session_state.selected_prompt = ""
-    st.rerun()
+# Enhanced instruction box
+st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    padding: 20px;
+    border-radius: 15px;
+    border-left: 5px solid #667eea;
+    margin: 20px 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+">
+    <p style="margin: 0; font-size: 1.1em; color: #333;">
+        <strong>💡 How to use:</strong> Type your NFL question below and click 'Analyze' or press Enter to submit. 
+        Or click one of the recommendation buttons for instant analysis.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# Create a form to handle submission properly
+with st.form(key="query_form", clear_on_submit=False):
+    user_prompt = st.text_input(
+        "Enter your question here:",
+        placeholder="e.g., What were the stats for Patrick Mahomes last season?",
+        value=st.session_state.selected_prompt
+    )
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        submit_button = st.form_submit_button("🔍 Analyze", use_container_width=True)
+    with col2:
+        if st.form_submit_button("🗑️ Clear", use_container_width=True):
+            st.session_state.selected_prompt = ""
+            st.session_state.submitted_prompt = ""
+            st.rerun()
+
+# Process form submission
+if submit_button and user_prompt.strip():
+    st.session_state.submitted_prompt = user_prompt.strip()
+elif submit_button and not user_prompt.strip():
+    st.warning("⚠️ Please enter a question before clicking Analyze!")
 
 # --- RECOMMENDATION BUTTONS ---
-st.markdown("### 💡 Try these popular searches:")
+st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 15px;
+    border-radius: 15px;
+    margin: 20px 0;
+    text-align: center;
+    color: white;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+">
+    <h3 style="margin: 0; font-size: 1.5em;">💡 Popular NFL Searches</h3>
+    <p style="margin: 5px 0 0 0; opacity: 0.9;">Click any button below for instant analysis</p>
+</div>
+""", unsafe_allow_html=True)
+
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("**🏆 Star Players**")
     if st.button("📊 Patrick Mahomes Stats", use_container_width=True):
         st.session_state.selected_prompt = "What are Patrick Mahomes' stats for the 2024 season?"
+        st.session_state.submitted_prompt = "What are Patrick Mahomes' stats for the 2024 season?"
         st.rerun()
     if st.button("🏃 Josh Allen Performance", use_container_width=True):
         st.session_state.selected_prompt = "Show me Josh Allen's performance this season"
+        st.session_state.submitted_prompt = "Show me Josh Allen's performance this season"
         st.rerun()
     if st.button("🎯 Lamar Jackson Analysis", use_container_width=True):
         st.session_state.selected_prompt = "Give me a comprehensive analysis of Lamar Jackson"
+        st.session_state.submitted_prompt = "Give me a comprehensive analysis of Lamar Jackson"
         st.rerun()
     if st.button("🔥 Dak Prescott Stats", use_container_width=True):
         st.session_state.selected_prompt = "How has Dak Prescott been performing this year?"
+        st.session_state.submitted_prompt = "How has Dak Prescott been performing this year?"
         st.rerun()
 
 with col2:
     st.markdown("**🏈 Team & League Info**")
     if st.button("🦅 Eagles Team Info", use_container_width=True):
         st.session_state.selected_prompt = "Tell me about the Philadelphia Eagles team"
+        st.session_state.submitted_prompt = "Tell me about the Philadelphia Eagles team"
         st.rerun()
     if st.button("📈 AFC Standings", use_container_width=True):
         st.session_state.selected_prompt = "Show me the current AFC standings for 2025"
+        st.session_state.submitted_prompt = "Show me the current AFC standings for 2025"
         st.rerun()
     if st.button("🏆 Chiefs Season Stats", use_container_width=True):
         st.session_state.selected_prompt = "What are the Kansas City Chiefs' season statistics?"
+        st.session_state.submitted_prompt = "What are the Kansas City Chiefs' season statistics?"
         st.rerun()
     if st.button("🔥 Bills vs Chiefs Comparison", use_container_width=True):
         st.session_state.selected_prompt = "Compare the Buffalo Bills and Kansas City Chiefs teams"
+        st.session_state.submitted_prompt = "Compare the Buffalo Bills and Kansas City Chiefs teams"
         st.rerun()
 
 with col3:
     st.markdown("**⭐ Rising Stars & Legends**")
     if st.button("🌟 C.J. Stroud Stats", use_container_width=True):
         st.session_state.selected_prompt = "How is C.J. Stroud performing this season?"
+        st.session_state.submitted_prompt = "How is C.J. Stroud performing this season?"
         st.rerun()
     if st.button("💨 Tyreek Hill Analysis", use_container_width=True):
         st.session_state.selected_prompt = "Show me Tyreek Hill's receiving stats"
+        st.session_state.submitted_prompt = "Show me Tyreek Hill's receiving stats"
         st.rerun()
     if st.button("🛡️ Aaron Donald Performance", use_container_width=True):
         st.session_state.selected_prompt = "Give me Aaron Donald's defensive stats"
+        st.session_state.submitted_prompt = "Give me Aaron Donald's defensive stats"
         st.rerun()
     if st.button("⚡ Cooper Kupp Stats", use_container_width=True):
         st.session_state.selected_prompt = "What are Cooper Kupp's receiving statistics?"
+        st.session_state.submitted_prompt = "What are Cooper Kupp's receiving statistics?"
         st.rerun()
 
 st.markdown("---")
 
-if user_prompt:
+# Only process when user has submitted a query
+if st.session_state.get('submitted_prompt'):
     with st.spinner("Analyzing your request and generating report..."):
         try:
             # Add context to the prompt to guide Gemini's behavior
@@ -699,11 +873,37 @@ if user_prompt:
                 "- For team comparisons → use `get_nfl_teams` and `get_nfl_season_stats`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
                 "\n"
+                "DATA PRESENTATION REQUIREMENTS:\n"
+                "- ALWAYS format statistical data as markdown tables with proper headers\n"
+                "- Use emojis and formatting to make data visually appealing (🏈 📊 🎯 ⭐ 🔥 💪 🏃‍♂️ 🛡️ etc.)\n"
+                "- Create separate tables for different stat categories (passing, rushing, receiving, defense)\n"
+                "- Include season year prominently in table headers\n"
+                "- Sort data by most relevant metrics (recent season first, highest stats, etc.)\n"
+                "- Add summary insights and key highlights after each table\n"
+                "- Use bold formatting for standout numbers and achievements\n"
+                "- Include comparative context (league averages, rankings, etc.) when relevant\n"
+                "\n"
+                "VISUAL FORMATTING EXAMPLES:\n"
+                "```\n"
+                "## 🏈 Patrick Mahomes - 2024 Season Stats\n"
+                "\n"
+                "### 📊 Passing Statistics\n"
+                "| Stat | Value | Rank |\n"
+                "|------|-------|------|\n"
+                "| **Passing Yards** | **4,183** | 🥇 #1 |\n"
+                "| **Touchdowns** | **31** | 🥈 #2 |\n"
+                "| **Completion %** | **67.8%** | 🥉 #3 |\n"
+                "\n"
+                "### 🎯 Key Highlights\n"
+                "- 🔥 **Elite Performance**: Led league in passing yards\n"
+                "- ⭐ **Consistency**: 67.8% completion rate shows accuracy\n"
+                "```\n"
+                "\n"
                 "The Ball Don't Lie NFL API contains comprehensive data prioritizing 2025 (current season), 2024, and 2023 seasons. "
                 "Always mention which seasons the statistics are from. If recent data (2025/2024/2023) is available, highlight that. "
                 "Create comprehensive data tables with relevant NFL statistics and sort by season (most recent first). "
                 "NOTE: This app is optimized for the 60 requests/minute rate limit with intelligent caching and request optimization. "
-                f"\nUser Question: {user_prompt}"
+                f"\nUser Question: {st.session_state.submitted_prompt}"
             )
 
             # Use the stable google-generativeai syntax
@@ -777,12 +977,39 @@ if user_prompt:
                     with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
                         # Generate final response with the tool output data
                         final_prompt = f"""
-                        Based on the user's question: "{user_prompt}"
+                        Based on the user's question: "{st.session_state.submitted_prompt}"
                         
-                        And the following data about the player:
+                        And the following NFL data:
                         {tool_output}
                         
-                        Please provide a comprehensive analysis answering the user's question about this player.
+                        Please provide a comprehensive analysis with the following formatting requirements:
+                        
+                        1. **VISUAL PRESENTATION**: Use emojis, headers, and markdown formatting extensively
+                        2. **DATA TABLES**: Present ALL statistical data in well-formatted markdown tables
+                        3. **TABLE STRUCTURE**: Include headers, proper alignment, and use | separators
+                        4. **HIGHLIGHT KEY STATS**: Use **bold** for standout numbers and achievements
+                        5. **SEASONAL ORGANIZATION**: Group data by season with clear headers (🏈 2025 Season, 📊 2024 Season, etc.)
+                        6. **PERFORMANCE INSIGHTS**: Add bullet points with key takeaways after each table
+                        7. **COMPARATIVE CONTEXT**: Include rankings, percentiles, or league context when possible
+                        8. **EMOJI USAGE**: Use relevant sports emojis (🏈 📊 🎯 ⭐ 🔥 💪 🏃‍♂️ 🛡️ 🥇 🥈 🥉) throughout
+                        
+                        EXAMPLE TABLE FORMAT:
+                        ```
+                        ## 🏈 [Player Name] - [Season] Statistics
+                        
+                        ### 📊 [Category] Stats
+                        | Statistic | Value | Notes |
+                        |-----------|-------|-------|
+                        | **Yards** | **X,XXX** | 🔥 Season High |
+                        | **TDs** | **XX** | ⭐ Elite Level |
+                        
+                        ### 🎯 Key Performance Highlights
+                        - 🏆 **Achievement 1**: Description
+                        - 💪 **Strength**: Analysis
+                        - 📈 **Trend**: Insight
+                        ```
+                        
+                        Make the analysis engaging, informative, and visually rich. Answer the user's specific question comprehensively.
                         """
                         
                         response_with_tool_output = model.generate_content(
@@ -792,7 +1019,39 @@ if user_prompt:
                         status.update(label="Report generated!", state="complete")
 
                     st.markdown("---")
-                    st.subheader(f"Report based on your question:")
+                    
+                    # Enhanced header with styling
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        padding: 20px;
+                        border-radius: 15px;
+                        margin: 20px 0;
+                        text-align: center;
+                        color: white;
+                        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+                    ">
+                        <h2 style="margin: 0; font-size: 2em;">📊 NFL Analysis Report</h2>
+                        <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Comprehensive data analysis powered by Ball Don't Lie API</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Display the user's question in a styled info box
+                    st.markdown(f"""
+                    <div style="
+                        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+                        padding: 15px;
+                        border-radius: 10px;
+                        border-left: 5px solid #667eea;
+                        margin: 15px 0;
+                    ">
+                        <strong>🔍 Your Question:</strong> {st.session_state.submitted_prompt}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Clear the submitted prompt after processing to prevent re-running
+                    processed_prompt = st.session_state.submitted_prompt
+                    st.session_state.submitted_prompt = ""
                     
                     # Safely access the response text
                     try:
@@ -803,7 +1062,39 @@ if user_prompt:
                                     response_text += part.text
                             
                             if response_text:
-                                st.markdown(response_text)
+                                # Display the response in a styled container
+                                with st.container():
+                                    st.markdown("""
+                                    <div style="
+                                        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                                        padding: 25px;
+                                        border-radius: 15px;
+                                        margin: 20px 0;
+                                        border: 1px solid rgba(102, 126, 234, 0.2);
+                                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                                    ">
+                                    """, unsafe_allow_html=True)
+                                    
+                                    st.markdown(response_text)
+                                    
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                                    
+                                # Add a footer with additional info
+                                st.markdown("""
+                                <div style="
+                                    text-align: center;
+                                    padding: 15px;
+                                    margin-top: 20px;
+                                    background: rgba(102, 126, 234, 0.1);
+                                    border-radius: 10px;
+                                    font-size: 0.9em;
+                                    color: #666;
+                                ">
+                                    📊 <strong>Data Source:</strong> Ball Don't Lie NFL API | 
+                                    🤖 <strong>Analysis:</strong> Google Gemini AI | 
+                                    ⚡ <strong>Optimized:</strong> Smart caching & rate limiting
+                                </div>
+                                """, unsafe_allow_html=True)
                             else:
                                 st.error("No text content found in the response.")
                         else:
