@@ -910,7 +910,7 @@ if st.session_state.get('submitted_prompt'):
                 "- Sort data by most relevant metrics (recent season first, highest stats, etc.)\n"
                 "- Add summary insights and key highlights after each table\n"
                 "- Use bold formatting for standout numbers and achievements\n"
-                "- ALWAYS format data in a horizontal view with headers reading left to right\n"
+                "- ALWAYS format data statistics in a horizontal view with headers reading left to right\n"
                 "- Include comparative context (league averages, rankings, etc.) when relevant\n"
                 "\n"
                 "VISUAL FORMATTING EXAMPLES:\n"
