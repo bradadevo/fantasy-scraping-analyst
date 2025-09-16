@@ -1,9 +1,6 @@
 import streamlit as st
 import json
 import requests
-import asyncio
-from mcp import ClientSession
-from mcp.client.http import HttpTransport
 
 # Use the stable google-generativeai library
 import google.generativeai as genai
@@ -19,21 +16,37 @@ except KeyError as e:
     st.stop()
 
 # --- HTTP MCP CLIENT ---
-async def call_mcp_tool(tool_name: str, **kwargs):
-    """Call an MCP tool using HTTP transport"""
+def call_mcp_tool(tool_name: str, **kwargs):
+    """Call an MCP tool using direct HTTP requests"""
     try:
-        # Set up HTTP transport with authentication headers
+        # Prepare the MCP request payload
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": kwargs
+            }
+        }
+        
         headers = {
-            "Authorization": BALLDONTLIE_API_KEY,
+            "Authorization": f"Bearer {BALLDONTLIE_API_KEY}",
             "Content-Type": "application/json"
         }
         
-        transport = HttpTransport(MCP_SERVER_URL, headers=headers)
+        # Make HTTP request to MCP server
+        response = requests.post(MCP_SERVER_URL, json=payload, headers=headers)
+        response.raise_for_status()
         
-        async with ClientSession(transport) as session:
-            # Call the tool
-            result = await session.call_tool(tool_name, kwargs)
-            return result.content
+        result = response.json()
+        
+        if "error" in result:
+            st.error(f"MCP server error: {result['error']}")
+            return None
+            
+        return result.get("result", {}).get("content", [])
+        
     except Exception as e:
         st.error(f"Error calling MCP tool {tool_name}: {e}")
         return None
@@ -47,12 +60,12 @@ def get_player_stats_from_api(league: str, firstName: str, lastName: str):
         st.info(f"🔍 Searching for {firstName} {lastName} in {league}...")
         
         # Call the MCP get_players tool
-        data = asyncio.run(call_mcp_tool(
+        data = call_mcp_tool(
             tool_name='get_players',
             league=league,
             firstName=firstName,
             lastName=lastName
-        ))
+        )
         
         if not data:
             error_msg = f"❌ No data returned from MCP server for {firstName} {lastName} in {league}."
