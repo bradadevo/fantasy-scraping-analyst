@@ -3,4 +3,4 @@ beautifulsoup4
 pandas
 requests
 google-generativeai
-mcp[http]
+mcp
