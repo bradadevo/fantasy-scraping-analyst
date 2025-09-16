@@ -1,6 +1,9 @@
 import streamlit as st
 import json
 import requests
+import time
+from datetime import datetime, timedelta
+from functools import wraps
 
 # Use the stable google-generativeai library
 import google.generativeai as genai
@@ -15,26 +18,390 @@ except KeyError as e:
     st.info("Please add GEMINI_API_KEY and BALLDONTLIE_API_KEY to your `.streamlit/secrets.toml` file.")
     st.stop()
 
-# --- DIRECT NFL API CLIENT ---
+# --- RATE LIMITING AND CACHING INFRASTRUCTURE ---
+if 'api_call_times' not in st.session_state:
+    st.session_state.api_call_times = []
+
+if 'api_cache' not in st.session_state:
+    st.session_state.api_cache = {}
+
+def rate_limit_decorator(func):
+    """Decorator to enforce rate limiting of 60 requests per minute"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        current_time = time.time()
+        
+        # Remove API calls older than 1 minute
+        st.session_state.api_call_times = [
+            call_time for call_time in st.session_state.api_call_times 
+            if current_time - call_time < 60
+        ]
+        
+        # Check if we're at the rate limit
+        if len(st.session_state.api_call_times) >= 55:  # Keep buffer of 5 requests
+            wait_time = 60 - (current_time - st.session_state.api_call_times[0])
+            if wait_time > 0:
+                st.warning(f"⏱️ Rate limit approaching. Waiting {wait_time:.1f} seconds to avoid hitting the 60 req/min limit...")
+                time.sleep(wait_time)
+                # Clean up old calls after waiting
+                current_time = time.time()
+                st.session_state.api_call_times = [
+                    call_time for call_time in st.session_state.api_call_times 
+                    if current_time - call_time < 60
+                ]
+        
+        # Record this API call
+        st.session_state.api_call_times.append(current_time)
+        
+        return func(*args, **kwargs)
+    return wrapper
+
+def get_cache_key(endpoint, params):
+    """Generate a cache key for API requests"""
+    return f"{endpoint}_{hash(str(sorted(params.items())) if params else '')}"
+
+def get_cached_response(endpoint, params):
+    """Get cached response if available and not expired"""
+    cache_key = get_cache_key(endpoint, params)
+    if cache_key in st.session_state.api_cache:
+        cached_data, timestamp = st.session_state.api_cache[cache_key]
+        # Cache expires after 5 minutes
+        if time.time() - timestamp < 300:
+            st.info(f"📋 Using cached data for {endpoint}")
+            return cached_data
+    return None
+
+def cache_response(endpoint, params, response_data):
+    """Cache API response"""
+    cache_key = get_cache_key(endpoint, params)
+    st.session_state.api_cache[cache_key] = (response_data, time.time())
+
+@rate_limit_decorator
+def make_api_request(endpoint, params=None):
+    """Make rate-limited API request with caching"""
+    # Check cache first
+    cached_response = get_cached_response(endpoint, params)
+    if cached_response:
+        return cached_response
+    
+    # Make the actual API request
+    headers = {
+        "Authorization": f"Bearer {BALLDONTLIE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    url = f"{NFL_API_BASE_URL}/{endpoint}"
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()
+    
+    response_data = response.json()
+    
+    # Cache the response
+    cache_response(endpoint, params, response_data)
+    
+    return response_data
+
+# --- STREAMLIT APP LAYOUT ---
+st.set_page_config(page_title="NFL Player Analyst", layout="wide")
+st.title("🏈 NFL Player Analyst")
+st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
+st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
+
+# --- RATE LIMITING DASHBOARD ---
+current_time = time.time()
+recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
+calls_remaining = 60 - len(recent_calls)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("API Calls (Last Minute)", len(recent_calls), help="Number of API calls made in the last 60 seconds")
+with col2:
+    st.metric("Calls Remaining", calls_remaining, help="Remaining API calls before rate limit")
+with col3:
+    cache_size = len(st.session_state.api_cache)
+    st.metric("Cached Responses", cache_size, help="Number of cached API responses (reduces future calls)")
+
+if calls_remaining < 10:
+    st.warning(f"⚠️ Only {calls_remaining} API calls remaining this minute. The app will automatically wait to avoid rate limits.")
+elif calls_remaining < 20:
+    st.info(f"🟡 {calls_remaining} API calls remaining this minute.")
+
+st.markdown("---")
+recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
+calls_remaining = 60 - len(recent_calls)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("API Calls (Last Minute)", len(recent_calls), help="Number of API calls made in the last 60 seconds")
+with col2:
+    st.metric("Calls Remaining", calls_remaining, help="Remaining API calls before rate limit")
+with col3:
+    cache_size = len(st.session_state.api_cache)
+    st.metric("Cached Responses", cache_size, help="Number of cached API responses (reduces future calls)")
+
+if calls_remaining < 10:
+    st.warning(f"⚠️ Only {calls_remaining} API calls remaining this minute. The app will automatically wait to avoid rate limits.")
+elif calls_remaining < 20:
+    st.info(f"🟡 {calls_remaining} API calls remaining this minute.")
+
+st.markdown("---")
+if 'api_call_times' not in st.session_state:
+    st.session_state.api_call_times = []
+
+if 'api_cache' not in st.session_state:
+    st.session_state.api_cache = {}
+
+def rate_limit_decorator(func):
+    """Decorator to enforce rate limiting of 60 requests per minute"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        current_time = time.time()
+        
+        # Remove API calls older than 1 minute
+        st.session_state.api_call_times = [
+            call_time for call_time in st.session_state.api_call_times 
+            if current_time - call_time < 60
+        ]
+        
+        # Check if we're at the rate limit
+        if len(st.session_state.api_call_times) >= 55:  # Keep buffer of 5 requests
+            wait_time = 60 - (current_time - st.session_state.api_call_times[0])
+            if wait_time > 0:
+                st.warning(f"⏱️ Rate limit approaching. Waiting {wait_time:.1f} seconds to avoid hitting the 60 req/min limit...")
+                time.sleep(wait_time)
+                # Clean up old calls after waiting
+                current_time = time.time()
+                st.session_state.api_call_times = [
+                    call_time for call_time in st.session_state.api_call_times 
+                    if current_time - call_time < 60
+                ]
+        
+        # Record this API call
+        st.session_state.api_call_times.append(current_time)
+        
+        return func(*args, **kwargs)
+    return wrapper
+
+def get_cache_key(endpoint, params):
+    """Generate a cache key for API requests"""
+    return f"{endpoint}_{hash(str(sorted(params.items())) if params else '')}"
+
+def get_cached_response(endpoint, params):
+    """Get cached response if available and not expired"""
+    cache_key = get_cache_key(endpoint, params)
+    if cache_key in st.session_state.api_cache:
+        cached_data, timestamp = st.session_state.api_cache[cache_key]
+        # Cache expires after 5 minutes
+        if time.time() - timestamp < 300:
+            st.info(f"📋 Using cached data for {endpoint}")
+            return cached_data
+    return None
+
+def cache_response(endpoint, params, response_data):
+    """Cache API response"""
+    cache_key = get_cache_key(endpoint, params)
+    st.session_state.api_cache[cache_key] = (response_data, time.time())
+
+@rate_limit_decorator
+def make_api_request(endpoint, params=None):
+    """Make rate-limited API request with caching"""
+    # Check cache first
+    cached_response = get_cached_response(endpoint, params)
+    if cached_response:
+        return cached_response
+    
+    # Make the actual API request
+    headers = {
+        "Authorization": f"Bearer {BALLDONTLIE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    url = f"{NFL_API_BASE_URL}/{endpoint}"
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()
+    
+    response_data = response.json()
+    
+    # Cache the response
+    cache_response(endpoint, params, response_data)
+    
+    return response_data
+st.title("🏈 NFL Player Analyst")
+st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
+st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
+
+# --- QUICK HELP SECTION ---
+with st.expander("ℹ️ What can you ask?", expanded=False):
+    st.markdown("""
+    **Player Questions:**
+    - "What are [Player Name]'s stats for 2024?"
+    - "How is [Player Name] performing this season?"
+    - "Give me a comprehensive analysis of [Player Name]"
+    - "Compare [Player 1] and [Player 2]"
+    
+    **Team Questions:**
+    - "Tell me about the [Team Name] team"
+    - "What are the [Team Name]'s season statistics?"
+    - "Compare the [Team A] and [Team B] teams"
+    
+    **League Questions:**
+    - "Show me the current AFC/NFC standings"
+    - "What are the 2025 NFL standings?"
+    - "Which teams are in the AFC East?"
+    
+    **Example Players:** Patrick Mahomes, Josh Allen, Lamar Jackson, C.J. Stroud, Tyreek Hill, Aaron Donald, Cooper Kupp
+    """)
+
+st.markdown("---")()
+
+# --- ENHANCED NFL API CLIENT WITH COMPREHENSIVE ENDPOINTS ---
+def get_nfl_teams(division=None, conference=None):
+    """Get NFL teams with optional filtering by division or conference"""
+    try:
+        params = {}
+        if division:
+            params["division"] = division
+        if conference:
+            params["conference"] = conference
+            
+        return make_api_request("teams", params)
+    except Exception as e:
+        st.error(f"Error fetching teams: {e}")
+        return {"error": str(e)}
+
+def get_nfl_games(seasons=None, team_ids=None, weeks=None, postseason=None, per_page=25):
+    """Get NFL games with filtering options"""
+    try:
+        params = {"per_page": per_page}
+        if seasons:
+            params["seasons[]"] = seasons if isinstance(seasons, list) else [seasons]
+        if team_ids:
+            params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
+        if weeks:
+            params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
+        if postseason is not None:
+            params["postseason"] = postseason
+            
+        return make_api_request("games", params)
+    except Exception as e:
+        st.error(f"Error fetching games: {e}")
+        return {"error": str(e)}
+
+def get_nfl_standings(season):
+    """Get NFL standings for a specific season"""
+    try:
+        params = {"season": season}
+        return make_api_request("standings", params)
+    except Exception as e:
+        st.error(f"Error fetching standings: {e}")
+        return {"error": str(e)}
+
+def get_nfl_season_stats(season, player_ids=None, team_id=None, postseason=None, sort_by=None):
+    """Get NFL season stats with comprehensive filtering"""
+    try:
+        params = {"season": season}
+        if player_ids:
+            params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
+        if team_id:
+            params["team_id"] = team_id
+        if postseason is not None:
+            params["postseason"] = postseason
+        if sort_by:
+            params["sort_by"] = sort_by
+            
+        return make_api_request("season_stats", params)
+    except Exception as e:
+        st.error(f"Error fetching season stats: {e}")
+        return {"error": str(e)}
+
+
+
+def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
+    """Get NFL player injury information"""
+    try:
+        params = {"per_page": per_page}
+        if team_ids:
+            params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
+        if player_ids:
+            params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
+            
+        return make_api_request("player_injuries", params)
+    except Exception as e:
+        st.error(f"Error fetching player injuries: {e}")
+        return {"error": str(e)}
+
+def get_comprehensive_player_analysis(firstName: str, lastName: str):
+    """
+    Get comprehensive player analysis including stats, team info, games, and metrics
+    OPTIMIZED: Reduced API calls by combining requests and using smart caching
+    """
+    try:
+        st.info(f"🔍 Performing comprehensive analysis for {firstName} {lastName}...")
+        
+        # First get basic player info
+        player_data = get_player_stats_from_api(firstName, lastName, include_stats=True)
+        players = json.loads(player_data)
+        
+        if isinstance(players, dict) and players.get('error'):
+            return player_data
+            
+        if not players or len(players) == 0:
+            return json.dumps({"error": "No player found"})
+            
+        player = players[0]
+        player_id = player.get('id')
+        team_info = player.get('team', {})
+        team_id = team_info.get('id') if team_info else None
+        
+        comprehensive_data = {
+            "player": player,
+            "additional_data": {}
+        }
+        
+        if player_id:
+            # OPTIMIZATION: Only fetch the most recent season stats to reduce API calls
+            st.info("📊 Fetching recent season statistics...")
+            # Try 2025 first, then 2024 as fallback - only make 1-2 calls instead of 3
+            for season in [2025, 2024]:
+                season_stats = get_nfl_season_stats(season, player_ids=[player_id])
+                if season_stats.get('data') and len(season_stats['data']) > 0:
+                    comprehensive_data["additional_data"][f"season_{season}_stats"] = season_stats
+                    st.success(f"✅ Found {season} season data, skipping older seasons to save API calls")
+                    break  # Stop after finding the first available season
+                    
+            # Get injury information (1 API call)
+            st.info("🏥 Checking injury status...")
+            injuries = get_nfl_player_injuries(player_ids=[player_id])
+            if injuries.get('data'):
+                comprehensive_data["additional_data"]["injuries"] = injuries
+                
+        if team_id:
+            # OPTIMIZATION: Use cached team data via our rate-limited function
+            st.info("🏈 Fetching team information...")
+            try:
+                team_response = make_api_request(f"teams/{team_id}")
+                comprehensive_data["additional_data"]["team_details"] = team_response
+            except:
+                pass  # Team details are optional
+                
+        st.success("✅ Comprehensive analysis complete!")
+        return json.dumps(comprehensive_data)
+        
+    except Exception as e:
+        st.error(f"Error in comprehensive analysis: {e}")
+        return json.dumps({"error": str(e)})
 def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool = True):
     """
     Function that calls the Ball Don't Lie NFL API directly to get player information and optionally their stats.
-    This function is the "tool" that Gemini will be instructed to call.
+    OPTIMIZED: Reduced API calls by limiting search strategies and stats attempts
     """
     try:
         st.info(f"🔍 Searching for NFL player {firstName} {lastName}...")
         
-        # Set up headers for the API request
-        headers = {
-            "Authorization": f"Bearer {BALLDONTLIE_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # Try multiple search strategies for better results
+        # OPTIMIZATION: Reduce search strategies to 2 most effective ones
         search_strategies = [
-            f"{firstName} {lastName}",  # Full name
-            firstName,                   # First name only
-            lastName                     # Last name only
+            f"{firstName} {lastName}",  # Full name (most likely to work)
+            lastName                     # Last name only (fallback)
         ]
         
         found_players = []
@@ -42,14 +409,10 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
         for search_term in search_strategies:
             st.info(f"🔍 Trying search strategy: '{search_term}'")
             
-            # Make direct API call to NFL endpoint
-            url = f"{NFL_API_BASE_URL}/players"
+            # Make direct API call to NFL endpoint using our rate-limited function
             params = {"search": search_term}
             
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
+            data = make_api_request("players", params)
             st.info(f"📊 API response for '{search_term}': {str(data)[:200]}...")
             
             # Check if we found any players
@@ -87,44 +450,33 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
             for player in found_players:
                 player_id = player.get('id')
                 if player_id:
-                    # Fetch stats for this player - try multiple approaches for recent data
-                    stats_url = f"{NFL_API_BASE_URL}/stats"
-                    
-                    # Try different parameter combinations to get recent data
+                    # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
                     stats_attempts = [
                         {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
                         {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season 
-                        {"player_ids[]": player_id, "seasons[]": "2023"},  # Try 2023 season
-                        {"player_ids[]": player_id},  # Default query
-                        {"player_ids[]": player_id, "per_page": 100},  # More results
                     ]
                     
-                    found_stats = False
                     all_stats = []
                     
                     for attempt_params in stats_attempts:
                         try:
                             st.info(f"🔍 Trying stats query with params: {attempt_params}")
-                            stats_response = requests.get(stats_url, headers=headers, params=attempt_params)
-                            stats_response.raise_for_status()
-                            
-                            stats_data = stats_response.json()
+                            stats_data = make_api_request("stats", attempt_params)
                             st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
                             
                             if stats_data.get('data') and len(stats_data['data']) > 0:
                                 st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
                                 all_stats.extend(stats_data['data'])
-                                found_stats = True
                                 
                                 # Check what seasons we got
                                 seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
                                 st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
                                 
-                                # If we found 2025, 2024 or 2023 data, prefer that
-                                recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024', '2023']]
+                                # If we found 2025 or 2024 data, that's good enough
+                                recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
                                 if recent_stats:
                                     st.success(f"🎯 Found {len(recent_stats)} recent season records!")
-                                    break
+                                    break  # Stop after finding recent data
                                     
                         except Exception as attempt_error:
                             st.warning(f"❌ Attempt failed: {attempt_error}")
@@ -163,6 +515,7 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
 def get_player_stats_only(firstName: str, lastName: str):
     """
     Function that fetches only the statistics for a specific NFL player.
+    OPTIMIZED: Reduced API calls by limiting stats attempts to recent seasons only
     """
     try:
         st.info(f"📈 Fetching statistics for NFL player {firstName} {lastName}...")
@@ -183,22 +536,10 @@ def get_player_stats_only(firstName: str, lastName: str):
         if not player_id:
             return json.dumps({"error": "Player ID not found"})
         
-        # Set up headers for the API request
-        headers = {
-            "Authorization": f"Bearer {BALLDONTLIE_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # Fetch stats for this player with multiple attempts for recent data
-        stats_url = f"{NFL_API_BASE_URL}/stats"
-        
-        # Try different parameter combinations to get recent data
+        # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
         stats_attempts = [
             {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
             {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season
-            {"player_ids[]": player_id, "seasons[]": "2023"},  # Try 2023 season
-            {"player_ids[]": player_id},  # Default query
-            {"player_ids[]": player_id, "per_page": 100},  # More results
         ]
         
         all_stats = []
@@ -206,10 +547,7 @@ def get_player_stats_only(firstName: str, lastName: str):
         for attempt_params in stats_attempts:
             try:
                 st.info(f"🔍 Trying stats query with params: {attempt_params}")
-                stats_response = requests.get(stats_url, headers=headers, params=attempt_params)
-                stats_response.raise_for_status()
-                
-                stats_data = stats_response.json()
+                stats_data = make_api_request("stats", attempt_params)
                 st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
                 
                 if stats_data.get('data') and len(stats_data['data']) > 0:
@@ -220,11 +558,11 @@ def get_player_stats_only(firstName: str, lastName: str):
                     seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
                     st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
                     
-                    # If we found 2025, 2024 or 2023 data, prefer that
-                    recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024', '2023']]
+                    # If we found 2025 or 2024 data, that's good enough
+                    recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
                     if recent_stats:
                         st.success(f"🎯 Found {len(recent_stats)} recent season records!")
-                        break
+                        break  # Stop after finding recent data
                         
             except Exception as attempt_error:
                 st.warning(f"❌ Attempt failed: {attempt_error}")
@@ -310,7 +648,84 @@ tool_declarations = [
                     },
                     "required": ["firstName", "lastName"]
                 }
-            }
+            },
+            {
+                "name": "get_comprehensive_player_analysis",
+                "description": "Gets the most comprehensive analysis of an NFL player including basic stats, season stats, advanced metrics, injury status, and team information. Use this for in-depth player analysis questions.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "firstName": {
+                            "type": "string",
+                            "description": "The first name of the NFL player."
+                        },
+                        "lastName": {
+                            "type": "string",
+                            "description": "The last name of the NFL player."
+                        }
+                    },
+                    "required": ["firstName", "lastName"]
+                }
+            },
+            {
+                "name": "get_nfl_teams",
+                "description": "Gets information about NFL teams, with optional filtering by division or conference.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "division": {
+                            "type": "string",
+                            "description": "Filter by division (e.g., 'AFC East', 'NFC West')"
+                        },
+                        "conference": {
+                            "type": "string",
+                            "description": "Filter by conference ('AFC' or 'NFC')"
+                        }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "get_nfl_standings",
+                "description": "Gets NFL standings for a specific season.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {
+                            "type": "integer",
+                            "description": "The NFL season year (e.g., 2025, 2024, 2023)"
+                        }
+                    },
+                    "required": ["season"]
+                }
+            },
+            {
+                "name": "get_nfl_season_stats",
+                "description": "Gets comprehensive season statistics for players with filtering options.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {
+                            "type": "integer",
+                            "description": "The NFL season year"
+                        },
+                        "player_ids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of player IDs to filter by"
+                        },
+                        "team_id": {
+                            "type": "integer",
+                            "description": "Team ID to filter by"
+                        },
+                        "postseason": {
+                            "type": "boolean",
+                            "description": "Whether to include postseason stats"
+                        }
+                    },
+                    "required": ["season"]
+                }
+            },
         ]
     }
 ]
@@ -322,31 +737,99 @@ st.write("Ask a question about NFL player stats, and Gemini will find the data a
 st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
 
 # --- The Natural Language Input Field ---
+if 'selected_prompt' not in st.session_state:
+    st.session_state.selected_prompt = ""
+
 user_prompt = st.text_input(
     "Enter your question here:",
     placeholder="e.g., What were the stats for Patrick Mahomes last season?",
+    value=st.session_state.selected_prompt
 )
+
+# Clear button for better UX
+if st.button("🗑️ Clear", help="Clear the input field"):
+    st.session_state.selected_prompt = ""
+    st.rerun()
+
+# --- RECOMMENDATION BUTTONS ---
+st.markdown("### 💡 Try these popular searches:")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("**🏆 Star Players**")
+    if st.button("📊 Patrick Mahomes Stats", use_container_width=True):
+        st.session_state.selected_prompt = "What are Patrick Mahomes' stats for the 2024 season?"
+        st.rerun()
+    if st.button("🏃 Josh Allen Performance", use_container_width=True):
+        st.session_state.selected_prompt = "Show me Josh Allen's performance this season"
+        st.rerun()
+    if st.button("🎯 Lamar Jackson Analysis", use_container_width=True):
+        st.session_state.selected_prompt = "Give me a comprehensive analysis of Lamar Jackson"
+        st.rerun()
+    if st.button("🔥 Dak Prescott Stats", use_container_width=True):
+        st.session_state.selected_prompt = "How has Dak Prescott been performing this year?"
+        st.rerun()
+
+with col2:
+    st.markdown("**🏈 Team & League Info**")
+    if st.button("🦅 Eagles Team Info", use_container_width=True):
+        st.session_state.selected_prompt = "Tell me about the Philadelphia Eagles team"
+        st.rerun()
+    if st.button("📈 AFC Standings", use_container_width=True):
+        st.session_state.selected_prompt = "Show me the current AFC standings for 2025"
+        st.rerun()
+    if st.button("🏆 Chiefs Season Stats", use_container_width=True):
+        st.session_state.selected_prompt = "What are the Kansas City Chiefs' season statistics?"
+        st.rerun()
+    if st.button("🔥 Bills vs Chiefs Comparison", use_container_width=True):
+        st.session_state.selected_prompt = "Compare the Buffalo Bills and Kansas City Chiefs teams"
+        st.rerun()
+
+with col3:
+    st.markdown("**⭐ Rising Stars & Legends**")
+    if st.button("🌟 C.J. Stroud Stats", use_container_width=True):
+        st.session_state.selected_prompt = "How is C.J. Stroud performing this season?"
+        st.rerun()
+    if st.button("💨 Tyreek Hill Analysis", use_container_width=True):
+        st.session_state.selected_prompt = "Show me Tyreek Hill's receiving stats"
+        st.rerun()
+    if st.button("🛡️ Aaron Donald Performance", use_container_width=True):
+        st.session_state.selected_prompt = "Give me Aaron Donald's defensive stats"
+        st.rerun()
+    if st.button("⚡ Cooper Kupp Stats", use_container_width=True):
+        st.session_state.selected_prompt = "What are Cooper Kupp's receiving statistics?"
+        st.rerun()
+
+st.markdown("---")
 
 if user_prompt:
     with st.spinner("Analyzing your request and generating report..."):
         try:
             # Add context to the prompt to guide Gemini's behavior
             context_prompt = (
-                "You are a top-tier NFL analyst. Your task is to analyze the user's question, "
-                "and if it requires ANY NFL player information, use the appropriate tool: "
-                "- Use `get_player_stats_from_api` for general player information including team, position, and optionally statistics "
-                "- Use `get_player_stats_only` when you specifically need just the statistical data for a player "
-                "IMPORTANT: These tools can answer questions like 'What team does [player] play for?', 'What position does [player] play?', and statistical questions. "
-                "The Ball Don't Lie NFL API contains comprehensive NFL football data including detailed player statistics. "
-                "The API will attempt to fetch the most recent available data, prioritizing 2025 (current season), 2024, and 2023 seasons. "
-                "If the user asks for 'last season' or 'recent stats', focus on the most recent season data available. "
-                "Once you have the data, provide a detailed analysis of the player's performance and value focusing on NFL statistics like passing yards, rushing yards, touchdowns, receptions, etc. "
-                "Always mention which seasons the statistics are from, and if recent data (2025/2024/2023) is available, highlight that. "
-                "If only older data is available, mention this limitation and suggest the user that the API may have limited recent data. "
-                "When presenting statistics, create comprehensive data tables with relevant NFL statistics such as: "
-                "Player Name, Team, Position, Season, Passing Yards, Passing Touchdowns, Rushing Yards, Rushing Touchdowns, Receptions, Receiving Yards, Receiving Touchdowns, and Fantasy Football Value. "
-                "Sort statistics by season (most recent first) and highlight the most recent season's performance. "
-                f"\n\nUser Question: {user_prompt}"
+                "You are a top-tier NFL analyst with access to comprehensive NFL data. Your task is to analyze the user's question and use the appropriate tools:\n"
+                "\n"
+                "PLAYER ANALYSIS TOOLS:\n"
+                "- `get_player_stats_from_api` - Basic player info, team, position, and stats\n"
+                "- `get_player_stats_only` - Just statistical data for a player\n" 
+                "- `get_comprehensive_player_analysis` - Complete analysis including season stats, advanced metrics, injury status, and team info\n"
+                "\n"
+                "TEAM & LEAGUE TOOLS:\n"
+                "- `get_nfl_teams` - Get team information, filter by division or conference\n"
+                "- `get_nfl_standings` - Get standings for any season\n"
+                "- `get_nfl_season_stats` - Comprehensive season statistics with filtering\n"
+                "\n"
+                "TOOL SELECTION GUIDELINES:\n"
+                "- For basic player questions → use `get_player_stats_from_api`\n"
+                "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
+                "- For team comparisons → use `get_nfl_teams` and `get_nfl_season_stats`\n"
+                "- For standings/rankings → use `get_nfl_standings`\n"
+                "\n"
+                "The Ball Don't Lie NFL API contains comprehensive data prioritizing 2025 (current season), 2024, and 2023 seasons. "
+                "Always mention which seasons the statistics are from. If recent data (2025/2024/2023) is available, highlight that. "
+                "Create comprehensive data tables with relevant NFL statistics and sort by season (most recent first). "
+                "NOTE: This app is optimized for the 60 requests/minute rate limit with intelligent caching and request optimization. "
+                f"\nUser Question: {user_prompt}"
             )
 
             # Use the stable google-generativeai syntax
@@ -387,6 +870,31 @@ if user_prompt:
                                 firstName=function_call.args['firstName'],
                                 lastName=function_call.args['lastName']
                             )
+                        elif function_call.name == "get_comprehensive_player_analysis":
+                            tool_output = get_comprehensive_player_analysis(
+                                firstName=function_call.args['firstName'],
+                                lastName=function_call.args['lastName']
+                            )
+                        elif function_call.name == "get_nfl_teams":
+                            teams_data = get_nfl_teams(
+                                division=function_call.args.get('division'),
+                                conference=function_call.args.get('conference')
+                            )
+                            tool_output = json.dumps(teams_data)
+                        elif function_call.name == "get_nfl_standings":
+                            standings_data = get_nfl_standings(
+                                season=function_call.args['season']
+                            )
+                            tool_output = json.dumps(standings_data)
+                        elif function_call.name == "get_nfl_season_stats":
+                            season_stats_data = get_nfl_season_stats(
+                                season=function_call.args['season'],
+                                player_ids=function_call.args.get('player_ids'),
+                                team_id=function_call.args.get('team_id'),
+                                postseason=function_call.args.get('postseason')
+                            )
+                            tool_output = json.dumps(season_stats_data)
+
                         else:
                             tool_output = json.dumps({"error": f"Unknown function: {function_call.name}"})
 
