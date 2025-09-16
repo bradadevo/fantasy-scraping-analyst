@@ -1,12 +1,15 @@
 import streamlit as st
 import json
 import requests
-import google.generativeai as genai
 import asyncio
 import mcp
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from urllib.parse import urlencode
+
+# New imports for the updated Google GenAI SDK
+import google.genai as genai
+from google.genai import types
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
@@ -138,11 +141,14 @@ if user_prompt:
                     status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
                     
                 with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
+                    # New syntax for sending tool output back to Gemini
                     response_with_tool_output = model.generate_content(
-                        genai.types.FunctionResponse(
-                            name="get_player_stats_from_mcp",
-                            response={"content": tool_output}
-                        )
+                        [
+                            types.Part.from_function_response(
+                                name="get_player_stats_from_mcp",
+                                response={"content": tool_output}
+                            )
+                        ]
                     )
                     status.update(label="Report generated!", state="complete")
 
