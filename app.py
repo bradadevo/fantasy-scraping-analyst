@@ -250,7 +250,20 @@ if user_prompt:
 
             # Use the stable google-generativeai syntax
             model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
-            response = model.generate_content(context_prompt)
+            
+            # Configure generation to use ANY function calling mode for better reliability
+            generation_config = genai.types.GenerationConfig(
+                temperature=0.1,
+                top_p=1,
+                top_k=32,
+                max_output_tokens=4096,
+            )
+            
+            response = model.generate_content(
+                context_prompt,
+                generation_config=generation_config,
+                tool_config={'function_calling_config': {'mode': 'ANY'}}
+            )
             
             # Check if response has function call
             if response.candidates and response.candidates[0].content.parts:
@@ -289,12 +302,32 @@ if user_prompt:
                         Please provide a comprehensive analysis answering the user's question about this player.
                         """
                         
-                        response_with_tool_output = model.generate_content(final_prompt)
+                        response_with_tool_output = model.generate_content(
+                            final_prompt,
+                            generation_config=generation_config
+                        )
                         status.update(label="Report generated!", state="complete")
 
                     st.markdown("---")
                     st.subheader(f"Report based on your question:")
-                    st.markdown(response_with_tool_output.text)
+                    
+                    # Safely access the response text
+                    try:
+                        if response_with_tool_output.candidates and response_with_tool_output.candidates[0].content.parts:
+                            response_text = ""
+                            for part in response_with_tool_output.candidates[0].content.parts:
+                                if hasattr(part, 'text'):
+                                    response_text += part.text
+                            
+                            if response_text:
+                                st.markdown(response_text)
+                            else:
+                                st.error("No text content found in the response.")
+                        else:
+                            st.error("No valid response content received from Gemini.")
+                    except Exception as text_error:
+                        st.error(f"Error accessing response text: {text_error}")
+                        st.write("Raw response:", str(response_with_tool_output)[:500] + "...")
                 else:
                     st.error("Gemini could not fulfill the request using its tools. Here is its direct response:")
                     st.markdown(response.text)
