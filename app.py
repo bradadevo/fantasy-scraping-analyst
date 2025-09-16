@@ -237,7 +237,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🏈 NFL Player Analyst")
-st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
 
 # --- The Natural Language Input Field ---
 def get_nfl_teams(division=None, conference=None):
@@ -873,7 +872,7 @@ st.markdown("""
 # Create a form to handle submission properly
 with st.form(key="query_form", clear_on_submit=False):
     user_prompt = st.text_input(
-        "🏈 Enter your question here:",
+        "",
         placeholder="e.g., What were the stats for Patrick Mahomes last season?",
         value=st.session_state.selected_prompt,
         help="Ask about any NFL player stats, team performance, weekly data, or league standings"
@@ -953,8 +952,8 @@ with col2:
 with col3:
     st.markdown("**⭐ Rising Stars & Legends**")
     if st.button("🌟 C.J. Stroud Stats", use_container_width=True):
-        st.session_state.selected_prompt = "How is C.J. Stroud performing this season?"
-        st.session_state.submitted_prompt = "How is C.J. Stroud performing this season?"
+        st.session_state.selected_prompt = "Enter your search criteria here!"
+        st.session_state.submitted_prompt = "Enter your search criteria here!"
         st.rerun()
     if st.button("💨 Tyreek Hill Analysis", use_container_width=True):
         st.session_state.selected_prompt = "Show me Tyreek Hill's receiving stats"
