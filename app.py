@@ -143,16 +143,12 @@ else:
             with st.spinner("Analyzing players and generating your report..."):
                 try:
                     for player_name in selected_players:
-                        # Corrected and more robust parsing logic
+                        # Robust parsing of player name
                         full_name = player_name.split(' (')[0]
                         name_parts = full_name.split()
-                        
-                        first_name = name_parts[0] if name_parts else ""
+
+                        first_name = name_parts[0] if len(name_parts) > 0 else ""
                         last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
-                        
-                        if not last_name:
-                           st.warning(f"Skipping {full_name} due to invalid name format.")
-                           continue
 
                         # --- The Prompt to Trigger Gemini's Tool Call ---
                         prompt_text = (
@@ -178,19 +174,4 @@ else:
                             
                             # --- Send the tool output back to Gemini for final reasoning ---
                             response_with_tool_output = model.generate_content(
-                                genai.types.FunctionResponse(
-                                    name="get_player_stats_from_mcp",
-                                    response={"content": tool_output}
-                                )
-                            )
-                            
-                            st.markdown("---")
-                            st.subheader(f"Report for {full_name}")
-                            st.markdown(response_with_tool_output.text)
-                            
-                        else:
-                            st.error(f"Gemini did not request a tool call for {full_name}. Here is its direct response:")
-                            st.markdown(response.text)
-
-                except Exception as e:
-                    st.error(f"An error occurred: {e}")
+                                gen
