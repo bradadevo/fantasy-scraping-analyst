@@ -876,6 +876,19 @@ st.markdown("---")
 
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
+    # Add an anchor point for automatic scrolling
+    st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
+    
+    # Add JavaScript to scroll to the output area
+    st.markdown("""
+    <script>
+        document.getElementById('analysis-output').scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    </script>
+    """, unsafe_allow_html=True)
+    
     with st.spinner("Analyzing your request and generating report..."):
         try:
             # Add context to the prompt to guide Gemini's behavior
@@ -910,6 +923,7 @@ if st.session_state.get('submitted_prompt'):
                 "- Add summary insights and key highlights after each table\n"
                 "- Use bold formatting for standout numbers and achievements\n"
                 "- Include comparative context (league averages, rankings, etc.) when relevant\n"
+                "- ALWAYS include a comprehensive fantasy football analysis section based on actual data\n"
                 "\n"
                 "VISUAL FORMATTING EXAMPLES:\n"
                 "```\n"
@@ -1020,6 +1034,15 @@ if st.session_state.get('submitted_prompt'):
                         6. **PERFORMANCE INSIGHTS**: Add bullet points with key takeaways after each table
                         7. **COMPARATIVE CONTEXT**: Include rankings, percentiles, or league context when possible
                         8. **EMOJI USAGE**: Use relevant sports emojis (🏈 📊 🎯 ⭐ 🔥 💪 🏃‍♂️ 🛡️ 🥇 🥈 🥉) throughout
+                        9. **FANTASY FOOTBALL ANALYSIS**: ALWAYS include a dedicated fantasy football section with:
+                           - Fantasy point projections based on actual statistical trends
+                           - Positional ranking and tier analysis
+                           - Matchup analysis if game/schedule data is available
+                           - Target share, red zone usage, and efficiency metrics
+                           - Weekly/seasonal fantasy outlook
+                           - Start/sit recommendations based on data
+                           - Trade value assessment
+                           - Injury impact on fantasy value (if injury data available)
                         
                         EXAMPLE TABLE FORMAT:
                         ```
@@ -1035,9 +1058,26 @@ if st.session_state.get('submitted_prompt'):
                         - 🏆 **Achievement 1**: Description
                         - 💪 **Strength**: Analysis
                         - 📈 **Trend**: Insight
+                        
+                        ## 🏆 Fantasy Football Analysis
+                        
+                        ### 📈 Fantasy Performance Metrics
+                        | Fantasy Metric | Value | Rank/Tier |
+                        |----------------|-------|-----------|
+                        | **Fantasy Points/Game** | **XX.X** | 🥇 Top 5 |
+                        | **Target Share** | **XX%** | Elite |
+                        | **Red Zone Touches** | **XX** | High Volume |
+                        
+                        ### 🎯 Fantasy Outlook
+                        - 🔥 **Start/Sit**: [Recommendation based on data]
+                        - 💎 **Trade Value**: [Assessment based on performance trends]
+                        - 📅 **Weekly Projection**: [Based on recent performance patterns]
+                        - 🎲 **Risk/Reward**: [Analysis of consistency vs ceiling]
                         ```
                         
-                        Make the analysis engaging, informative, and visually rich. Answer the user's specific question comprehensively.
+                        CRITICAL: Base ALL fantasy analysis on the actual data provided. Do not make up statistics, projections, or rankings. Use only the real performance data, injury information, team stats, and game data from the API response to inform fantasy insights.
+                        
+                        Make the analysis engaging, informative, and visually rich. Answer the user's specific question comprehensively while always including actionable fantasy football insights.
                         """
                         
                         response_with_tool_output = model.generate_content(
