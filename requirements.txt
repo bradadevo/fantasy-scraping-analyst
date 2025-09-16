@@ -1,6 +1,5 @@
 streamlit
-beautifulsoup4
-pandas
-requests
 google-generativeai
-mcp
+requests
+pandas
+mcp[http]
