@@ -195,55 +195,7 @@ st.title("🏈 NFL Player Analyst")
 st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
 st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
 
-# --- RATE LIMITING DASHBOARD ---
-st.markdown("### 📊 API Rate Limiting Dashboard")
-current_time = time.time()
-recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
-calls_remaining = 60 - len(recent_calls)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    # Color code based on usage
-    delta_color = "normal" if len(recent_calls) < 30 else "inverse"
-    st.metric(
-        "🔥 API Calls (Last Minute)", 
-        len(recent_calls), 
-        delta=f"of 60 max",
-        delta_color=delta_color,
-        help="Number of API calls made in the last 60 seconds"
-    )
-with col2:
-    # Color code remaining calls
-    remaining_color = "normal" if calls_remaining > 20 else "inverse"
-    st.metric(
-        "⚡ Calls Remaining", 
-        calls_remaining, 
-        delta=f"{round((calls_remaining/60)*100)}% available",
-        delta_color=remaining_color,
-        help="Remaining API calls before rate limit"
-    )
-with col3:
-    cache_size = len(st.session_state.api_cache)
-    st.metric(
-        "📋 Cached Responses", 
-        cache_size, 
-        delta="saves API calls",
-        help="Number of cached API responses (reduces future calls)"
-    )
-
-# Visual status indicators
-if calls_remaining < 10:
-    st.error(f"🚨 **CRITICAL**: Only {calls_remaining} API calls remaining this minute! The app will automatically wait to avoid rate limits.")
-elif calls_remaining < 20:
-    st.warning(f"⚠️ **WARNING**: {calls_remaining} API calls remaining this minute. Consider using cached data.")
-elif calls_remaining < 40:
-    st.info(f"🟡 **MODERATE**: {calls_remaining} API calls remaining this minute.")
-else:
-    st.success(f"🟢 **HEALTHY**: {calls_remaining} API calls remaining this minute. Ready for queries!")
-
-st.markdown("---")
-
-# --- ENHANCED NFL API CLIENT WITH COMPREHENSIVE ENDPOINTS ---
+# --- The Natural Language Input Field ---
 def get_nfl_teams(division=None, conference=None):
     """Get NFL teams with optional filtering by division or conference"""
     try:
@@ -319,61 +271,134 @@ def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
         st.error(f"Error fetching player injuries: {e}")
         return {"error": str(e)}
 
+def get_nfl_player_weekly_stats(firstName: str, lastName: str, season: int, weeks: list = None):
+    """
+    Get player stats for specific weeks of a season
+    """
+    try:
+        with st.expander("📅 Weekly Stats Fetching Details", expanded=False):
+            st.info(f"🏈 Fetching weekly stats for {firstName} {lastName} in {season}...")
+            
+            # First get the player to find their ID
+            player_data = get_player_stats_from_api(firstName, lastName, include_stats=False)
+            players = json.loads(player_data)
+            
+            if isinstance(players, dict) and players.get('error'):
+                return player_data  # Return the error
+            
+            if not players or len(players) == 0:
+                return json.dumps({"error": "No player found to get weekly stats for"})
+            
+            player = players[0]  # Use first match
+            player_id = player.get('id')
+            
+            if not player_id:
+                return json.dumps({"error": "Player ID not found"})
+            
+            # Build parameters for weekly stats query
+            params = {
+                "player_ids[]": player_id,
+                "seasons[]": str(season)
+            }
+            
+            if weeks:
+                params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
+                st.info(f"📅 Fetching stats for weeks: {weeks}")
+            else:
+                st.info(f"📅 Fetching all weekly stats for {season} season")
+            
+            # Make API call for stats
+            stats_data = make_api_request("stats", params)
+            
+            if stats_data.get('data') and len(stats_data['data']) > 0:
+                st.success(f"✅ Found {len(stats_data['data'])} weekly stat records!")
+                
+                # Organize stats by week
+                weekly_stats = {}
+                for stat in stats_data['data']:
+                    week = stat.get('week', 'Unknown')
+                    if week not in weekly_stats:
+                        weekly_stats[week] = []
+                    weekly_stats[week].append(stat)
+                
+                result = {
+                    "player": player,
+                    "season": season,
+                    "weekly_stats": weekly_stats,
+                    "total_weeks": len(weekly_stats)
+                }
+                
+                st.info(f"📊 Weekly breakdown: {list(weekly_stats.keys())}")
+                return json.dumps(result)
+            else:
+                return json.dumps({
+                    "player": player,
+                    "season": season,
+                    "weekly_stats": {},
+                    "message": f"No weekly statistics available for {firstName} {lastName} in {season}"
+                })
+            
+    except Exception as e:
+        st.error(f"Error fetching weekly stats: {e}")
+        return json.dumps({"error": str(e)})
+
 def get_comprehensive_player_analysis(firstName: str, lastName: str):
     """
     Get comprehensive player analysis including stats, team info, games, and metrics
     OPTIMIZED: Reduced API calls by combining requests and using smart caching
     """
     try:
-        st.info(f"🔍 Performing comprehensive analysis for {firstName} {lastName}...")
-        
-        # First get basic player info
-        player_data = get_player_stats_from_api(firstName, lastName, include_stats=True)
-        players = json.loads(player_data)
-        
-        if isinstance(players, dict) and players.get('error'):
-            return player_data
+        with st.expander("🔍 API Call Details & Debug Info", expanded=False):
+            st.info(f"🔍 Performing comprehensive analysis for {firstName} {lastName}...")
             
-        if not players or len(players) == 0:
-            return json.dumps({"error": "No player found"})
+            # First get basic player info
+            player_data = get_player_stats_from_api(firstName, lastName, include_stats=True)
+            players = json.loads(player_data)
             
-        player = players[0]
-        player_id = player.get('id')
-        team_info = player.get('team', {})
-        team_id = team_info.get('id') if team_info else None
-        
-        comprehensive_data = {
-            "player": player,
-            "additional_data": {}
-        }
-        
-        if player_id:
-            # OPTIMIZATION: Only fetch the most recent season stats to reduce API calls
-            st.info("📊 Fetching recent season statistics...")
-            # Try 2025 first, then 2024 as fallback - only make 1-2 calls instead of 3
-            for season in [2025, 2024]:
-                season_stats = get_nfl_season_stats(season, player_ids=[player_id])
-                if season_stats.get('data') and len(season_stats['data']) > 0:
-                    comprehensive_data["additional_data"][f"season_{season}_stats"] = season_stats
-                    st.success(f"✅ Found {season} season data, skipping older seasons to save API calls")
-                    break  # Stop after finding the first available season
+            if isinstance(players, dict) and players.get('error'):
+                return player_data
+                
+            if not players or len(players) == 0:
+                return json.dumps({"error": "No player found"})
+                
+            player = players[0]
+            player_id = player.get('id')
+            team_info = player.get('team', {})
+            team_id = team_info.get('id') if team_info else None
+            
+            comprehensive_data = {
+                "player": player,
+                "additional_data": {}
+            }
+            
+            if player_id:
+                # OPTIMIZATION: Only fetch the most recent season stats to reduce API calls
+                st.info("📊 Fetching recent season statistics...")
+                # Try 2025 first, then 2024 as fallback - only make 1-2 calls instead of 3
+                for season in [2025, 2024]:
+                    season_stats = get_nfl_season_stats(season, player_ids=[player_id])
+                    if season_stats.get('data') and len(season_stats['data']) > 0:
+                        comprehensive_data["additional_data"][f"season_{season}_stats"] = season_stats
+                        st.success(f"✅ Found {season} season data, skipping older seasons to save API calls")
+                        break  # Stop after finding the first available season
+                        
+                # Get injury information (1 API call)
+                st.info("🏥 Checking injury status...")
+                injuries = get_nfl_player_injuries(player_ids=[player_id])
+                if injuries.get('data'):
+                    comprehensive_data["additional_data"]["injuries"] = injuries
                     
-            # Get injury information (1 API call)
-            st.info("🏥 Checking injury status...")
-            injuries = get_nfl_player_injuries(player_ids=[player_id])
-            if injuries.get('data'):
-                comprehensive_data["additional_data"]["injuries"] = injuries
-                
-        if team_id:
-            # OPTIMIZATION: Use cached team data via our rate-limited function
-            st.info("🏈 Fetching team information...")
-            try:
-                team_response = make_api_request(f"teams/{team_id}")
-                comprehensive_data["additional_data"]["team_details"] = team_response
-            except:
-                pass  # Team details are optional
-                
-        st.success("✅ Comprehensive analysis complete!")
+            if team_id:
+                # OPTIMIZATION: Use cached team data via our rate-limited function
+                st.info("🏈 Fetching team information...")
+                try:
+                    team_response = make_api_request(f"teams/{team_id}")
+                    comprehensive_data["additional_data"]["team_details"] = team_response
+                except:
+                    pass  # Team details are optional
+                    
+            st.success("✅ Comprehensive analysis complete!")
+            
         return json.dumps(comprehensive_data)
         
     except Exception as e:
@@ -385,115 +410,116 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
     OPTIMIZED: Reduced API calls by limiting search strategies and stats attempts
     """
     try:
-        st.info(f"🔍 Searching for NFL player {firstName} {lastName}...")
-        
-        # OPTIMIZATION: Reduce search strategies to 2 most effective ones
-        search_strategies = [
-            f"{firstName} {lastName}",  # Full name (most likely to work)
-            lastName                     # Last name only (fallback)
-        ]
-        
-        found_players = []
-        
-        for search_term in search_strategies:
-            st.info(f"🔍 Trying search strategy: '{search_term}'")
+        with st.expander("🔍 Player Search & API Details", expanded=False):
+            st.info(f"🔍 Searching for NFL player {firstName} {lastName}...")
             
-            # Make direct API call to NFL endpoint using our rate-limited function
-            params = {"search": search_term}
+            # OPTIMIZATION: Reduce search strategies to 2 most effective ones
+            search_strategies = [
+                f"{firstName} {lastName}",  # Full name (most likely to work)
+                lastName                     # Last name only (fallback)
+            ]
             
-            data = make_api_request("players", params)
-            st.info(f"📊 API response for '{search_term}': {str(data)[:200]}...")
+            found_players = []
             
-            # Check if we found any players
-            if data.get('data') and len(data['data']) > 0:
-                # Filter results to find exact matches
-                exact_matches = []
-                for player in data['data']:
-                    player_first = player.get('first_name', '').lower()
-                    player_last = player.get('last_name', '').lower()
-                    
-                    if (firstName.lower() in player_first or player_first in firstName.lower()) and \
-                       (lastName.lower() in player_last or player_last in lastName.lower()):
-                        exact_matches.append(player)
+            for search_term in search_strategies:
+                st.info(f"🔍 Trying search strategy: '{search_term}'")
                 
-                if exact_matches:
-                    found_players = exact_matches
-                    st.success(f"✅ Found {len(exact_matches)} exact match(es) for {firstName} {lastName}!")
-                    break
-                elif data['data']:
-                    found_players = data['data'][:1]  # Use first match
-                    st.info(f"📋 Found {len(data['data'])} partial match(es), using first result")
-                    break
-        
-        if not found_players:
-            # If no results found with any strategy
-            error_msg = f"❌ No NFL players found matching {firstName} {lastName}."
-            st.warning(error_msg)
-            st.info("💡 Tip: Try using a different player name or check the spelling. Make sure the player is currently in the NFL.")
-            return json.dumps({"error": error_msg, "suggestion": "Try searching for current NFL players like Patrick Mahomes, Josh Allen, or Tom Brady."})
-        
-        # If include_stats is True, fetch stats for the found players
-        if include_stats and found_players:
-            st.info("📈 Fetching player statistics...")
+                # Make direct API call to NFL endpoint using our rate-limited function
+                params = {"search": search_term}
+                
+                data = make_api_request("players", params)
+                st.info(f"📊 API response for '{search_term}': {str(data)[:200]}...")
+                
+                # Check if we found any players
+                if data.get('data') and len(data['data']) > 0:
+                    # Filter results to find exact matches
+                    exact_matches = []
+                    for player in data['data']:
+                        player_first = player.get('first_name', '').lower()
+                        player_last = player.get('last_name', '').lower()
+                        
+                        if (firstName.lower() in player_first or player_first in firstName.lower()) and \
+                           (lastName.lower() in player_last or player_last in lastName.lower()):
+                            exact_matches.append(player)
+                    
+                    if exact_matches:
+                        found_players = exact_matches
+                        st.success(f"✅ Found {len(exact_matches)} exact match(es) for {firstName} {lastName}!")
+                        break
+                    elif data['data']:
+                        found_players = data['data'][:1]  # Use first match
+                        st.info(f"📋 Found {len(data['data'])} partial match(es), using first result")
+                        break
             
-            for player in found_players:
-                player_id = player.get('id')
-                if player_id:
-                    # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
-                    stats_attempts = [
-                        {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
-                        {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season 
-                    ]
-                    
-                    all_stats = []
-                    
-                    for attempt_params in stats_attempts:
-                        try:
-                            st.info(f"🔍 Trying stats query with params: {attempt_params}")
-                            stats_data = make_api_request("stats", attempt_params)
-                            st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
-                            
-                            if stats_data.get('data') and len(stats_data['data']) > 0:
-                                st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
-                                all_stats.extend(stats_data['data'])
+            if not found_players:
+                # If no results found with any strategy
+                error_msg = f"❌ No NFL players found matching {firstName} {lastName}."
+                st.warning(error_msg)
+                st.info("💡 Tip: Try using a different player name or check the spelling. Make sure the player is currently in the NFL.")
+                return json.dumps({"error": error_msg, "suggestion": "Try searching for current NFL players like Patrick Mahomes, Josh Allen, or Tom Brady."})
+            
+            # If include_stats is True, fetch stats for the found players
+            if include_stats and found_players:
+                st.info("📈 Fetching player statistics...")
+                
+                for player in found_players:
+                    player_id = player.get('id')
+                    if player_id:
+                        # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
+                        stats_attempts = [
+                            {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
+                            {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season 
+                        ]
+                        
+                        all_stats = []
+                        
+                        for attempt_params in stats_attempts:
+                            try:
+                                st.info(f"🔍 Trying stats query with params: {attempt_params}")
+                                stats_data = make_api_request("stats", attempt_params)
+                                st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
                                 
-                                # Check what seasons we got
-                                seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
-                                st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
-                                
-                                # If we found 2025 or 2024 data, that's good enough
-                                recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
-                                if recent_stats:
-                                    st.success(f"🎯 Found {len(recent_stats)} recent season records!")
-                                    break  # Stop after finding recent data
+                                if stats_data.get('data') and len(stats_data['data']) > 0:
+                                    st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
+                                    all_stats.extend(stats_data['data'])
                                     
-                        except Exception as attempt_error:
-                            st.warning(f"❌ Attempt failed: {attempt_error}")
-                            continue
-                    
-                    # Remove duplicates and sort by season (most recent first)
-                    if all_stats:
-                        unique_stats = []
-                        seen_ids = set()
-                        for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
-                            stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
-                            if stat_id not in seen_ids:
-                                unique_stats.append(stat)
-                                seen_ids.add(stat_id)
+                                    # Check what seasons we got
+                                    seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
+                                    st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
+                                    
+                                    # If we found 2025 or 2024 data, that's good enough
+                                    recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
+                                    if recent_stats:
+                                        st.success(f"🎯 Found {len(recent_stats)} recent season records!")
+                                        break  # Stop after finding recent data
+                                        
+                            except Exception as attempt_error:
+                                st.warning(f"❌ Attempt failed: {attempt_error}")
+                                continue
                         
-                        player['stats'] = unique_stats
-                        st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
-                        
-                        # Show season breakdown
-                        season_breakdown = {}
-                        for stat in unique_stats:
-                            season = stat.get('season', 'Unknown')
-                            season_breakdown[season] = season_breakdown.get(season, 0) + 1
-                        st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
-                        
-                    else:
-                        st.info(f"📊 No stats found for {firstName} {lastName} (player ID: {player_id})")
-                        player['stats'] = []
+                        # Remove duplicates and sort by season (most recent first)
+                        if all_stats:
+                            unique_stats = []
+                            seen_ids = set()
+                            for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
+                                stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
+                                if stat_id not in seen_ids:
+                                    unique_stats.append(stat)
+                                    seen_ids.add(stat_id)
+                            
+                            player['stats'] = unique_stats
+                            st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
+                            
+                            # Show season breakdown
+                            season_breakdown = {}
+                            for stat in unique_stats:
+                                season = stat.get('season', 'Unknown')
+                                season_breakdown[season] = season_breakdown.get(season, 0) + 1
+                            st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
+                            
+                        else:
+                            st.info(f"📊 No stats found for {firstName} {lastName} (player ID: {player_id})")
+                            player['stats'] = []
         
         return json.dumps(found_players)
         
@@ -507,86 +533,87 @@ def get_player_stats_only(firstName: str, lastName: str):
     OPTIMIZED: Reduced API calls by limiting stats attempts to recent seasons only
     """
     try:
-        st.info(f"📈 Fetching statistics for NFL player {firstName} {lastName}...")
-        
-        # First get the player to find their ID
-        player_data = get_player_stats_from_api(firstName, lastName, include_stats=False)
-        players = json.loads(player_data)
-        
-        if isinstance(players, dict) and players.get('error'):
-            return player_data  # Return the error
-        
-        if not players or len(players) == 0:
-            return json.dumps({"error": "No player found to get stats for"})
-        
-        player = players[0]  # Use first match
-        player_id = player.get('id')
-        
-        if not player_id:
-            return json.dumps({"error": "Player ID not found"})
-        
-        # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
-        stats_attempts = [
-            {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
-            {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season
-        ]
-        
-        all_stats = []
-        
-        for attempt_params in stats_attempts:
-            try:
-                st.info(f"🔍 Trying stats query with params: {attempt_params}")
-                stats_data = make_api_request("stats", attempt_params)
-                st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
-                
-                if stats_data.get('data') and len(stats_data['data']) > 0:
-                    st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
-                    all_stats.extend(stats_data['data'])
+        with st.expander("📈 Stats Fetching Details", expanded=False):
+            st.info(f"📈 Fetching statistics for NFL player {firstName} {lastName}...")
+            
+            # First get the player to find their ID
+            player_data = get_player_stats_from_api(firstName, lastName, include_stats=False)
+            players = json.loads(player_data)
+            
+            if isinstance(players, dict) and players.get('error'):
+                return player_data  # Return the error
+            
+            if not players or len(players) == 0:
+                return json.dumps({"error": "No player found to get stats for"})
+            
+            player = players[0]  # Use first match
+            player_id = player.get('id')
+            
+            if not player_id:
+                return json.dumps({"error": "Player ID not found"})
+            
+            # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
+            stats_attempts = [
+                {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
+                {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season
+            ]
+            
+            all_stats = []
+            
+            for attempt_params in stats_attempts:
+                try:
+                    st.info(f"🔍 Trying stats query with params: {attempt_params}")
+                    stats_data = make_api_request("stats", attempt_params)
+                    st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
                     
-                    # Check what seasons we got
-                    seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
-                    st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
-                    
-                    # If we found 2025 or 2024 data, that's good enough
-                    recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
-                    if recent_stats:
-                        st.success(f"🎯 Found {len(recent_stats)} recent season records!")
-                        break  # Stop after finding recent data
+                    if stats_data.get('data') and len(stats_data['data']) > 0:
+                        st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
+                        all_stats.extend(stats_data['data'])
                         
-            except Exception as attempt_error:
-                st.warning(f"❌ Attempt failed: {attempt_error}")
-                continue
-        
-        # Remove duplicates and sort by season (most recent first)
-        if all_stats:
-            unique_stats = []
-            seen_ids = set()
-            for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
-                stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
-                if stat_id not in seen_ids:
-                    unique_stats.append(stat)
-                    seen_ids.add(stat_id)
+                        # Check what seasons we got
+                        seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
+                        st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
+                        
+                        # If we found 2025 or 2024 data, that's good enough
+                        recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024']]
+                        if recent_stats:
+                            st.success(f"🎯 Found {len(recent_stats)} recent season records!")
+                            break  # Stop after finding recent data
+                            
+                except Exception as attempt_error:
+                    st.warning(f"❌ Attempt failed: {attempt_error}")
+                    continue
             
-            st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
-            
-            # Show season breakdown
-            season_breakdown = {}
-            for stat in unique_stats:
-                season = stat.get('season', 'Unknown')
-                season_breakdown[season] = season_breakdown.get(season, 0) + 1
-            st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
-            
-            return json.dumps({
-                "player": player,
-                "stats": unique_stats
-            })
-        else:
-            st.info(f"📊 No stats found for {firstName} {lastName}")
-            return json.dumps({
-                "player": player,
-                "stats": [],
-                "message": "No statistics available for this player"
-            })
+            # Remove duplicates and sort by season (most recent first)
+            if all_stats:
+                unique_stats = []
+                seen_ids = set()
+                for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
+                    stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
+                    if stat_id not in seen_ids:
+                        unique_stats.append(stat)
+                        seen_ids.add(stat_id)
+                
+                st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
+                
+                # Show season breakdown
+                season_breakdown = {}
+                for stat in unique_stats:
+                    season = stat.get('season', 'Unknown')
+                    season_breakdown[season] = season_breakdown.get(season, 0) + 1
+                st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
+                
+                return json.dumps({
+                    "player": player,
+                    "stats": unique_stats
+                })
+            else:
+                st.info(f"📊 No stats found for {firstName} {lastName}")
+                return json.dumps({
+                    "player": player,
+                    "stats": [],
+                    "message": "No statistics available for this player"
+                })
         
     except Exception as e:
         st.error(f"An error occurred while fetching stats: {e}")
@@ -713,6 +740,62 @@ tool_declarations = [
                         }
                     },
                     "required": ["season"]
+                }
+            },
+            {
+                "name": "get_nfl_player_weekly_stats",
+                "description": "Gets player statistics for specific weeks of a season. Use this when users ask about week 1, week 2, specific weeks, or weekly performance data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "firstName": {
+                            "type": "string",
+                            "description": "The first name of the NFL player."
+                        },
+                        "lastName": {
+                            "type": "string",
+                            "description": "The last name of the NFL player."
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": "The NFL season year (e.g., 2025, 2024, 2023)"
+                        },
+                        "weeks": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of week numbers to get stats for (e.g., [1, 2, 3] for weeks 1-3). If not provided, gets all weeks."
+                        }
+                    },
+                    "required": ["firstName", "lastName", "season"]
+                }
+            },
+            {
+                "name": "get_nfl_games",
+                "description": "Gets NFL games with filtering options including specific weeks, seasons, teams. Use this for game schedules, matchups, and game-specific data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "seasons": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of seasons to filter by"
+                        },
+                        "team_ids": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of team IDs to filter by"
+                        },
+                        "weeks": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "List of week numbers to filter by (e.g., [1, 2, 3])"
+                        },
+                        "postseason": {
+                            "type": "boolean",
+                            "description": "Whether to include postseason games"
+                        }
+                    },
+                    "required": []
                 }
             },
         ]
@@ -861,17 +944,21 @@ if st.session_state.get('submitted_prompt'):
                 "- `get_player_stats_from_api` - Basic player info, team, position, and stats\n"
                 "- `get_player_stats_only` - Just statistical data for a player\n" 
                 "- `get_comprehensive_player_analysis` - Complete analysis including season stats, advanced metrics, injury status, and team info\n"
+                "- `get_nfl_player_weekly_stats` - Get player stats for specific weeks (USE THIS for week 1, week 2, etc. questions)\n"
                 "\n"
                 "TEAM & LEAGUE TOOLS:\n"
                 "- `get_nfl_teams` - Get team information, filter by division or conference\n"
                 "- `get_nfl_standings` - Get standings for any season\n"
                 "- `get_nfl_season_stats` - Comprehensive season statistics with filtering\n"
+                "- `get_nfl_games` - Get game schedules, matchups, and weekly game data\n"
                 "\n"
                 "TOOL SELECTION GUIDELINES:\n"
                 "- For basic player questions → use `get_player_stats_from_api`\n"
                 "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
+                "- For WEEKLY DATA (week 1, week 2, etc.) → use `get_nfl_player_weekly_stats`\n"
                 "- For team comparisons → use `get_nfl_teams` and `get_nfl_season_stats`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
+                "- For game schedules/matchups → use `get_nfl_games`\n"
                 "\n"
                 "DATA PRESENTATION REQUIREMENTS:\n"
                 "- ALWAYS format statistical data as markdown tables with proper headers\n"
@@ -1111,3 +1198,80 @@ if st.session_state.get('submitted_prompt'):
         except Exception as e:
             st.error(f"An error occurred: {e}")
             st.write("Debug info:", str(e))
+
+# --- TECHNICAL DASHBOARD (Bottom of Page) ---
+st.markdown("---")
+st.markdown("---")
+
+with st.expander("⚙️ Technical Dashboard - API Rate Limiting & System Info", expanded=False):
+    st.markdown("### 📊 API Rate Limiting Dashboard")
+    current_time = time.time()
+    recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
+    calls_remaining = 60 - len(recent_calls)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        # Color code based on usage
+        delta_color = "normal" if len(recent_calls) < 30 else "inverse"
+        st.metric(
+            "🔥 API Calls (Last Minute)", 
+            len(recent_calls), 
+            delta=f"of 60 max",
+            delta_color=delta_color,
+            help="Number of API calls made in the last 60 seconds"
+        )
+    with col2:
+        # Color code remaining calls
+        remaining_color = "normal" if calls_remaining > 20 else "inverse"
+        st.metric(
+            "⚡ Calls Remaining", 
+            calls_remaining, 
+            delta=f"{round((calls_remaining/60)*100)}% available",
+            delta_color=remaining_color,
+            help="Remaining API calls before rate limit"
+        )
+    with col3:
+        cache_size = len(st.session_state.api_cache)
+        st.metric(
+            "📋 Cached Responses", 
+            cache_size, 
+            delta="saves API calls",
+            help="Number of cached API responses (reduces future calls)"
+        )
+
+    # Visual status indicators
+    if calls_remaining < 10:
+        st.error(f"🚨 **CRITICAL**: Only {calls_remaining} API calls remaining this minute! The app will automatically wait to avoid rate limits.")
+    elif calls_remaining < 20:
+        st.warning(f"⚠️ **WARNING**: {calls_remaining} API calls remaining this minute. Consider using cached data.")
+    elif calls_remaining < 40:
+        st.info(f"🟡 **MODERATE**: {calls_remaining} API calls remaining this minute.")
+    else:
+        st.success(f"🟢 **HEALTHY**: {calls_remaining} API calls remaining this minute. Ready for queries!")
+    
+    st.markdown("### 🔧 System Information")
+    st.info("""
+    **Rate Limiting**: 60 requests per minute with intelligent caching  
+    **Cache Duration**: 5 minutes per response  
+    **API Source**: Ball Don't Lie NFL API  
+    **AI Analysis**: Google Gemini 1.5 Flash  
+    **Optimization**: Smart request batching and response caching
+    """)
+
+# Footer
+st.markdown("""
+<div style="
+    text-align: center;
+    padding: 20px;
+    margin-top: 30px;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 10px;
+    border-top: 2px solid rgba(102, 126, 234, 0.2);
+    font-size: 0.9em;
+    color: #666;
+">
+    🏈 <strong>NFL Player Analyst</strong> | 
+    📊 Powered by Ball Don't Lie API & Google Gemini | 
+    ⚡ Optimized for performance with smart caching
+</div>
+""", unsafe_allow_html=True)
