@@ -2,10 +2,8 @@ import streamlit as st
 import json
 import requests
 import asyncio
-import mcp
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
-from urllib.parse import urlencode
+from mcp.client.http import HttpTransport
 
 # Use the stable google-generativeai library
 import google.generativeai as genai
@@ -20,28 +18,35 @@ except KeyError as e:
     st.info("Please add GEMINI_API_KEY, MCP_SERVER_URL, and BALLDONTLIE_API_KEY to your `.streamlit/secrets.toml` file.")
     st.stop()
 
-# --- MCP TOOL INTEGRATION ---
+# --- HTTP MCP CLIENT ---
 async def call_mcp_tool(tool_name: str, **kwargs):
-    """A helper function to call an MCP tool asynchronously."""
-    
-    headers = {
-        "Authorization": f"Bearer {st.secrets['BALLDONTLIE_API_KEY']}",
-        "Accept": "application/json, text/event-stream"
-    }
-    
-    url = st.secrets['MCP_SERVER_URL']
-
-    async with streamablehttp_client(url, headers=headers) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
-            result = await session.call_tool(tool_name=tool_name, input=kwargs)
+    """Call an MCP tool using HTTP transport"""
+    try:
+        # Set up HTTP transport with authentication headers
+        headers = {
+            "Authorization": BALLDONTLIE_API_KEY,
+            "Content-Type": "application/json"
+        }
+        
+        transport = HttpTransport(MCP_SERVER_URL, headers=headers)
+        
+        async with ClientSession(transport) as session:
+            # Call the tool
+            result = await session.call_tool(tool_name, kwargs)
             return result.content
+    except Exception as e:
+        st.error(f"Error calling MCP tool {tool_name}: {e}")
+        return None
 
-def get_player_stats_from_mcp(league: str, firstName: str, lastName: str):
+def get_player_stats_from_api(league: str, firstName: str, lastName: str):
     """
-    Python function that calls the MCP get_players tool.
+    Function that calls the Ball Don't Lie MCP server to get player information.
     This function is the "tool" that Gemini will be instructed to call.
     """
     try:
+        st.info(f"🔍 Searching for {firstName} {lastName} in {league}...")
+        
+        # Call the MCP get_players tool
         data = asyncio.run(call_mcp_tool(
             tool_name='get_players',
             league=league,
@@ -50,26 +55,31 @@ def get_player_stats_from_mcp(league: str, firstName: str, lastName: str):
         ))
         
         if not data:
-            st.error(f"MCP server returned no data for {firstName} {lastName}.")
-            return json.dumps([])
+            error_msg = f"❌ No data returned from MCP server for {firstName} {lastName} in {league}."
+            st.error(error_msg)
+            return json.dumps({"error": error_msg, "suggestion": "Try a different player name or check if the player exists in the database."})
+        
+        st.info(f"📊 Raw response from MCP server: {str(data)[:200]}...")
         
         if not isinstance(data, list) or len(data) == 0:
-            st.error(f"MCP server returned an invalid data format for {firstName} {lastName}.")
-            st.write("Raw data from MCP server:", data)
-            return json.dumps([])
+            error_msg = f"❌ No players found matching {firstName} {lastName} in {league}."
+            st.warning(error_msg)
+            st.info("💡 Tip: Try using a more common player name or check the spelling. Ball Don't Lie API primarily has NBA data.")
+            return json.dumps({"error": error_msg, "raw_data": data, "suggestion": "Ball Don't Lie API might not have this player in their database."})
 
+        st.success(f"✅ Found {len(data)} result(s) for {firstName} {lastName}!")
         return json.dumps(data)
     except Exception as e:
         st.error(f"An error occurred while fetching from MCP: {e}")
-        return json.dumps([])
+        return json.dumps({"error": str(e)})
 
 # --- TOOL DECLARATION FOR GEMINI ---
 tool_declarations = [
     {
         "function_declarations": [
             {
-                "name": "get_player_stats_from_mcp",
-                "description": "Gets detailed player statistics for a player from a given league by their first and last name.",
+                "name": "get_player_stats_from_api",
+                "description": "Gets detailed player statistics for a player from a given league by their first and last name using Ball Don't Lie MCP API.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -95,14 +105,15 @@ tool_declarations = [
 ]
 
 # --- STREAMLIT APP LAYOUT ---
-st.set_page_config(page_title="Fantasy Football Analyst", layout="wide")
-st.title("🏈 Fantasy Football Player Analyst")
-st.write("Ask a question about an NFL player's fantasy football stats, and Gemini will find the data and provide an analysis.")
+st.set_page_config(page_title="Sports Player Analyst", layout="wide")
+st.title("🏀 Sports Player Analyst")
+st.write("Ask a question about NBA or NFL player stats, and Gemini will find the data and provide an analysis.")
+st.info("💡 **Note**: This app uses the Ball Don't Lie MCP API which has comprehensive NBA data. NFL data may be limited.")
 
 # --- The Natural Language Input Field ---
 user_prompt = st.text_input(
     "Enter your question here:",
-    placeholder="e.g., What were the stats for Travis Kelce last season?",
+    placeholder="e.g., What were the stats for LeBron James last season?",
 )
 
 if user_prompt:
@@ -110,11 +121,13 @@ if user_prompt:
         try:
             # Add context to the prompt to guide Gemini's behavior
             context_prompt = (
-                "You are a top-tier fantasy football analyst. Your task is to analyze the user's question, "
-                "and if it requires player statistics, use the `get_player_stats_from_mcp` tool. "
-                "The tool's league is always 'NFL'. "
-                "Once you have the data, provide a concise analysis of each player's fantasy football value for the remainder of the season. "
-                "If you find no statistics for a player, state that you cannot perform the analysis and explain why. "
+                "You are a top-tier sports analyst. Your task is to analyze the user's question, "
+                "and if it requires player statistics, use the `get_player_stats_from_api` tool. "
+                "IMPORTANT: The Ball Don't Lie API primarily contains NBA basketball data. If the user asks about NFL players, "
+                "try the tool first, but if no data is found, explain that the database may not contain that NFL player's information. "
+                "For NBA players, the tool should work well. Use 'NBA' as the league for basketball players and 'NFL' for football players. "
+                "Once you have the data, provide a detailed analysis of the player's performance and value. "
+                "If you find no statistics for a player, explain that the player may not be in the Ball Don't Lie database and suggest they try an NBA player instead. "
                 "Your analysis must include a single, comprehensive data table with the following columns: "
                 "Player Name, Team, Position, Receptions, ReceivingYards, ReceivingTouchdowns, RushingYards, RushingTouchdowns, FumblesLost, and OverallFantasyFootballValue. "
                 "Sort the table by highest to lowest ReceivingYards. "
@@ -131,16 +144,16 @@ if user_prompt:
                 if hasattr(part, 'function_call') and part.function_call:
                     function_call = part.function_call
                     
-                    with st.status("Calling MCP server...", expanded=True) as status:
+                    with st.status("Calling Ball Don't Lie MCP API...", expanded=True) as status:
                         status.update(label=f"Requesting data for {function_call.args.get('firstName')} {function_call.args.get('lastName')}...")
                         
-                        tool_output = get_player_stats_from_mcp(
-                            league="NFL",
+                        tool_output = get_player_stats_from_api(
+                            league=function_call.args.get('league', 'NBA'),  # Default to NBA since it has better data
                             firstName=function_call.args['firstName'],
                             lastName=function_call.args['lastName']
                         )
 
-                        status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
+                        status.update(label=f"Received data from Ball Don't Lie MCP API for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
                         
                     with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
                         # Generate final response with the tool output data
