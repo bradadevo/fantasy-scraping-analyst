@@ -876,6 +876,21 @@ st.markdown("---")
 
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
+    # Add an anchor point for automatic scrolling to analysis output
+    st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
+    
+    # Add JavaScript to scroll to the output area
+    st.markdown("""
+    <script>
+        setTimeout(function() {
+            document.getElementById('analysis-output').scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }, 100);
+    </script>
+    """, unsafe_allow_html=True)
+    
     with st.spinner("Analyzing your request and generating report..."):
         try:
             # Add context to the prompt to guide Gemini's behavior
@@ -1107,6 +1122,95 @@ if st.session_state.get('submitted_prompt'):
                                     
                                     st.markdown("</div>", unsafe_allow_html=True)
                                     
+                                # Add comprehensive fantasy analysis outlook at the end
+                                st.markdown("---")
+                                st.markdown("""
+                                <div style="
+                                    background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 50%, #45B7D1 100%);
+                                    padding: 25px;
+                                    border-radius: 15px;
+                                    margin: 25px 0;
+                                    text-align: center;
+                                    color: white;
+                                    box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
+                                ">
+                                    <h2 style="margin: 0 0 15px 0; font-size: 2.2em;">🏆 Fantasy Football Outlook</h2>
+                                    <p style="margin: 0; font-size: 1.2em; opacity: 0.95;">Data-driven insights for your fantasy lineup decisions</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                # Generate additional fantasy analysis with processed_prompt
+                                fantasy_prompt = f"""
+                                Based on the NFL data analysis above for the query: "{processed_prompt}"
+                                
+                                Provide a comprehensive FANTASY FOOTBALL OUTLOOK section with the following:
+                                
+                                **CRITICAL**: Use ONLY the actual data from the previous analysis. Do not make up any statistics.
+                                
+                                Create a polished fantasy analysis with:
+                                
+                                ### 🎯 Fantasy Summary
+                                - Overall fantasy assessment based on real performance data
+                                - Position ranking and tier placement (if determinable from data)
+                                - Key fantasy-relevant metrics from the actual stats
+                                
+                                ### 📊 Fantasy Performance Breakdown
+                                Create a table with fantasy-relevant metrics from the actual data:
+                                - Points per game calculations from real stats
+                                - Consistency ratings based on actual performance
+                                - Red zone opportunities and efficiency
+                                - Target share and usage (for skill positions)
+                                
+                                ### 🔮 Weekly Outlook & Recommendations
+                                - Start/Sit recommendation based on performance trends
+                                - Matchup analysis (if schedule/opponent data available)
+                                - Risk/Reward assessment from actual performance patterns
+                                - Injury considerations (if injury data was provided)
+                                
+                                ### 💎 Trade & Waiver Analysis
+                                - Current trade value based on performance
+                                - Buy-low or sell-high opportunities
+                                - Waiver wire priority (for emerging players)
+                                - ROS (Rest of Season) outlook based on trends
+                                
+                                ### 🎲 Key Fantasy Takeaways
+                                - 3-5 bullet points with actionable fantasy advice
+                                - Based entirely on the real data analysis
+                                - Include confidence level in recommendations
+                                
+                                Format with rich markdown, emojis, and professional presentation.
+                                """
+                                
+                                # Generate fantasy analysis
+                                fantasy_response = model.generate_content(
+                                    fantasy_prompt,
+                                    generation_config=generation_config
+                                )
+                                
+                                # Display fantasy analysis
+                                if fantasy_response.candidates and fantasy_response.candidates[0].content.parts:
+                                    fantasy_text = ""
+                                    for part in fantasy_response.candidates[0].content.parts:
+                                        if hasattr(part, 'text'):
+                                            fantasy_text += part.text
+                                    
+                                    if fantasy_text:
+                                        st.markdown("""
+                                        <div style="
+                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                            padding: 25px;
+                                            border-radius: 15px;
+                                            margin: 20px 0;
+                                            border: 2px solid rgba(255, 107, 107, 0.3);
+                                            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+                                            color: white;
+                                        ">
+                                        """, unsafe_allow_html=True)
+                                        
+                                        st.markdown(fantasy_text)
+                                        
+                                        st.markdown("</div>", unsafe_allow_html=True)
+                                
                                 # Add a footer with additional info
                                 st.markdown("""
                                 <div style="
