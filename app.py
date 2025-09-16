@@ -5,13 +5,12 @@ import google.generativeai as genai
 import asyncio
 import mcp
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client # Corrected import
+from mcp.client.streamable_http import streamablehttp_client
 from urllib.parse import urlencode
 import pandas as pd
 from datetime import datetime
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
-# This is a critical step for security and deployment
 try:
     genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
     SPORTS_DATA_API_KEY = st.secrets['SPORTS_DATA_API_KEY']
@@ -23,7 +22,6 @@ except KeyError as e:
     st.stop()
 
 # --- SPORTSDATA.IO FOR PLAYER LIST ONLY ---
-# This function is used once to populate the multiselect in the UI
 @st.cache_data(ttl=86400)
 def get_all_players_data():
     """Fetches a complete list of all NFL players from SportsData.io."""
@@ -53,11 +51,9 @@ def get_player_list_options(all_players):
 async def call_mcp_tool(tool_name: str, **kwargs):
     """A helper function to call an MCP tool asynchronously."""
     
-    # Construct the URL with the API key as a query parameter
     params = {"api_key": st.secrets['BALLDONTLIE_API_KEY']}
     url = f"{st.secrets['MCP_SERVER_URL']}?{urlencode(params)}"
     
-    # Use the correct client name and URL
     async with streamablehttp_client(url) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             result = await session.call_tool(tool_name=tool_name, input=kwargs)
@@ -76,13 +72,10 @@ def get_player_stats_from_mcp(league: str, first_name: str, last_name: str):
             lastName=last_name
         ))
         
-        # --- Debugging and Error Handling for the MCP response ---
         if not data:
             st.error(f"MCP server returned no data for {first_name} {last_name}.")
-            # Return an empty JSON object that Gemini can process without an error
             return json.dumps([])
         
-        # Check if the data is a list of player stats
         if not isinstance(data, list) or len(data) == 0:
             st.error(f"MCP server returned an invalid data format for {first_name} {last_name}.")
             st.write("Raw data from MCP server:", data)
@@ -94,7 +87,6 @@ def get_player_stats_from_mcp(league: str, first_name: str, last_name: str):
         return json.dumps([])
 
 # --- TOOL DECLARATION FOR GEMINI ---
-# This dictionary describes the Python function to Gemini
 tool_declarations = [
     {
         "function_declarations": [
@@ -151,7 +143,5 @@ else:
             with st.spinner("Analyzing players and generating your report..."):
                 try:
                     for player_name in selected_players:
-                        # Parse the player name into first and last name
-                        full_name = player_name.split(' (')[0]
-                        name_parts = full_name.split()
-                        first_
+                        # --- CORRECTED CODE FOR PARSING PLAYER NAMES ---
+                        full_name = player
