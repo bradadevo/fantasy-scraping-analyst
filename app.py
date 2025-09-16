@@ -7,14 +7,12 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from urllib.parse import urlencode
 
-# New imports for the updated Google GenAI SDK
-import google.genai as genai
-from google.genai import types
+# Use the stable google-generativeai library
+import google.generativeai as genai
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
-    genai.api_key = st.secrets['GEMINI_API_KEY']
-    
+    genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
     MCP_SERVER_URL = st.secrets['MCP_SERVER_URL']
     BALLDONTLIE_API_KEY = st.secrets['BALLDONTLIE_API_KEY']
 except KeyError as e:
@@ -123,47 +121,48 @@ if user_prompt:
                 f"\n\nUser Question: {user_prompt}"
             )
 
-            # CORRECTED: Use the GenerativeModel class from the correct submodule
-            model = genai.GenerativeModel("gemini-1.5-flash", tools=tool_declarations)
-
-            response = model.generate_content(
-                contents=[
-                    types.Part.from_text(context_prompt),
-                ]
-            )
+            # Use the stable google-generativeai syntax
+            model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
+            response = model.generate_content(context_prompt)
             
-            function_call = response.candidates[0].content.parts[0].function_call
-
-            if function_call:
-                with st.status("Calling MCP server...", expanded=True) as status:
-                    status.update(label=f"Requesting data for {function_call.args.get('firstName')} {function_call.args.get('lastName')}...")
+            # Check if response has function call
+            if response.candidates and response.candidates[0].content.parts:
+                part = response.candidates[0].content.parts[0]
+                if hasattr(part, 'function_call') and part.function_call:
+                    function_call = part.function_call
                     
-                    tool_output = get_player_stats_from_mcp(
-                        league="NFL",
-                        firstName=function_call.args['firstName'],
-                        lastName=function_call.args['lastName']
-                    )
+                    with st.status("Calling MCP server...", expanded=True) as status:
+                        status.update(label=f"Requesting data for {function_call.args.get('firstName')} {function_call.args.get('lastName')}...")
+                        
+                        tool_output = get_player_stats_from_mcp(
+                            league="NFL",
+                            firstName=function_call.args['firstName'],
+                            lastName=function_call.args['lastName']
+                        )
 
-                    status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
-                    
-                with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
-                    response_with_tool_output = model.generate_content(
-                        contents=[
-                            types.Part.from_function_response(
-                                name="get_player_stats_from_mcp",
-                                response={"content": tool_output}
-                            )
-                        ]
-                    )
-                    status.update(label="Report generated!", state="complete")
+                        status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
+                        
+                    with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
+                        # Use the correct syntax for function response
+                        response_with_tool_output = model.generate_content(
+                            [
+                                genai.types.content.Part.from_function_response(
+                                    name="get_player_stats_from_mcp",
+                                    response={"content": tool_output}
+                                )
+                            ]
+                        )
+                        status.update(label="Report generated!", state="complete")
 
-                st.markdown("---")
-                st.subheader(f"Report based on your question:")
-                st.markdown(response_with_tool_output.text)
-                
+                    st.markdown("---")
+                    st.subheader(f"Report based on your question:")
+                    st.markdown(response_with_tool_output.text)
+                else:
+                    st.error("Gemini could not fulfill the request using its tools. Here is its direct response:")
+                    st.markdown(response.text)
             else:
-                st.error("Gemini could not fulfill the request using its tools. Here is its direct response:")
-                st.markdown(response.text)
+                st.error("No valid response from Gemini.")
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
+            st.write("Debug info:", str(e))
