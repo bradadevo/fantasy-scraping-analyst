@@ -238,7 +238,6 @@ st.markdown("""
 
 st.title("🏈 NFL Player Analyst")
 st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
-st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
 
 # --- The Natural Language Input Field ---
 def get_nfl_teams(division=None, conference=None):
@@ -855,29 +854,29 @@ if 'selected_prompt' not in st.session_state:
 if 'submitted_prompt' not in st.session_state:
     st.session_state.submitted_prompt = ""
 
-# Enhanced instruction box
+# Enhanced input field styling
 st.markdown("""
 <div style="
-    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     padding: 20px;
     border-radius: 15px;
-    border-left: 5px solid #667eea;
     margin: 20px 0;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-align: center;
+    color: white;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 ">
-    <p style="margin: 0; font-size: 1.1em; color: #333;">
-        <strong>💡 How to use:</strong> Type your NFL question below and click 'Analyze' or press Enter to submit. 
-        Or click one of the recommendation buttons for instant analysis.
-    </p>
+    <h3 style="margin: 0; font-size: 1.8em;">🔍 Ask Your NFL Question</h3>
+    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Get instant analysis on any NFL player, team, or stat</p>
 </div>
 """, unsafe_allow_html=True)
 
 # Create a form to handle submission properly
 with st.form(key="query_form", clear_on_submit=False):
     user_prompt = st.text_input(
-        "Enter your question here:",
+        "🏈 Enter your question here:",
         placeholder="e.g., What were the stats for Patrick Mahomes last season?",
-        value=st.session_state.selected_prompt
+        value=st.session_state.selected_prompt,
+        help="Ask about any NFL player stats, team performance, weekly data, or league standings"
     )
     
     col1, col2 = st.columns([1, 4])
