@@ -1,5 +1,5 @@
 streamlit
-google-genai # This is the new library
+google-genai
 requests
 pandas
 mcp[http]
