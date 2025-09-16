@@ -3,3 +3,4 @@ google-genai
 requests
 pandas
 mcp[http]
+mcp
