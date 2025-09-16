@@ -876,20 +876,6 @@ st.markdown("---")
 
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
-    # Add an anchor point for automatic scrolling to analysis output
-    st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
-    
-    # Add JavaScript to scroll to the output area
-    st.markdown("""
-    <script>
-        setTimeout(function() {
-            document.getElementById('analysis-output').scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-            });
-        }, 100);
-    </script>
-    """, unsafe_allow_html=True)
     
     with st.spinner("Analyzing your request and generating report..."):
         try:
@@ -1062,6 +1048,21 @@ if st.session_state.get('submitted_prompt'):
                         status.update(label="Report generated!", state="complete")
 
                     st.markdown("---")
+                    
+                    # Add anchor point right before the analysis report
+                    st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
+                    
+                    # Add JavaScript to scroll to the actual output area
+                    st.markdown("""
+                    <script>
+                        setTimeout(function() {
+                            document.getElementById('analysis-output').scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'
+                            });
+                        }, 500);
+                    </script>
+                    """, unsafe_allow_html=True)
                     
                     # Enhanced header with styling
                     st.markdown("""
