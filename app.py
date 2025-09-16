@@ -13,7 +13,9 @@ from google.genai import types
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
-    genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
+    # Set the API key using the new SDK's method
+    genai.api_key = st.secrets['GEMINI_API_KEY']
+    
     MCP_SERVER_URL = st.secrets['MCP_SERVER_URL']
     BALLDONTLIE_API_KEY = st.secrets['BALLDONTLIE_API_KEY']
 except KeyError as e:
@@ -141,7 +143,6 @@ if user_prompt:
                     status.update(label=f"Received data from MCP for {function_call.args.get('firstName')} {function_call.args.get('lastName')}!", state="complete")
                     
                 with st.status("Sending data back to Gemini for analysis...", expanded=True) as status:
-                    # New syntax for sending tool output back to Gemini
                     response_with_tool_output = model.generate_content(
                         [
                             types.Part.from_function_response(
