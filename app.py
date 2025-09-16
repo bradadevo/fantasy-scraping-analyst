@@ -175,6 +175,51 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
     }
     
+    /* Special styling for the Analyze button */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 50%, #45B7D1 100%);
+        background-size: 200% 200%;
+        animation: gradientShift 3s ease infinite;
+        font-size: 1.1em;
+        font-weight: bold;
+        padding: 12px 25px;
+        border-radius: 30px;
+        box-shadow: 0 8px 15px rgba(255, 107, 107, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        transform: translateY(-3px) scale(1.05);
+        box-shadow: 0 12px 20px rgba(255, 107, 107, 0.4);
+        animation: gradientShift 1s ease infinite, pulse 0.5s ease;
+    }
+    
+    .stButton > button[kind="primary"]:active {
+        animation: rocket-launch 0.6s ease-out;
+    }
+    
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    @keyframes pulse {
+        0% { transform: translateY(-3px) scale(1.05); }
+        50% { transform: translateY(-3px) scale(1.1); }
+        100% { transform: translateY(-3px) scale(1.05); }
+    }
+    
+    @keyframes rocket-launch {
+        0% { transform: translateY(-3px) scale(1.05); }
+        20% { transform: translateY(-8px) scale(1.1) rotate(5deg); }
+        40% { transform: translateY(-15px) scale(1.15) rotate(-3deg); }
+        60% { transform: translateY(-10px) scale(1.1) rotate(2deg); }
+        80% { transform: translateY(-5px) scale(1.05) rotate(-1deg); }
+        100% { transform: translateY(-3px) scale(1.05) rotate(0deg); }
+    }
+    
     /* Info boxes styling */
     .stInfo {
         background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
@@ -802,11 +847,6 @@ tool_declarations = [
     }
 ]
 
-# --- STREAMLIT APP LAYOUT ---
-st.set_page_config(page_title="NFL Player Analyst", layout="wide")
-st.title("� NFL Player Analyst")
-st.write("Ask a question about NFL player stats, and Gemini will find the data and provide an analysis.")
-st.info("💡 **Note**: This app uses the Ball Don't Lie NFL API to provide comprehensive NFL player data and statistics.")
 
 # --- The Natural Language Input Field ---
 if 'selected_prompt' not in st.session_state:
@@ -842,7 +882,7 @@ with st.form(key="query_form", clear_on_submit=False):
     
     col1, col2 = st.columns([1, 4])
     with col1:
-        submit_button = st.form_submit_button("🔍 Analyze", use_container_width=True)
+        submit_button = st.form_submit_button("� Analyze", use_container_width=True, type="primary")
     with col2:
         if st.form_submit_button("🗑️ Clear", use_container_width=True):
             st.session_state.selected_prompt = ""
