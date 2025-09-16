@@ -87,23 +87,72 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
             for player in found_players:
                 player_id = player.get('id')
                 if player_id:
-                    # Fetch stats for this player
+                    # Fetch stats for this player - try multiple approaches for recent data
                     stats_url = f"{NFL_API_BASE_URL}/stats"
-                    stats_params = {"player_ids[]": player_id}
                     
-                    stats_response = requests.get(stats_url, headers=headers, params=stats_params)
-                    stats_response.raise_for_status()
+                    # Try different parameter combinations to get recent data
+                    stats_attempts = [
+                        {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
+                        {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season 
+                        {"player_ids[]": player_id, "seasons[]": "2023"},  # Try 2023 season
+                        {"player_ids[]": player_id},  # Default query
+                        {"player_ids[]": player_id, "per_page": 100},  # More results
+                    ]
                     
-                    stats_data = stats_response.json()
-                    st.info(f"📊 Stats response for player ID {player_id}: {str(stats_data)[:200]}...")
+                    found_stats = False
+                    all_stats = []
                     
-                    # Add stats to player data
-                    player['stats'] = stats_data.get('data', [])
+                    for attempt_params in stats_attempts:
+                        try:
+                            st.info(f"🔍 Trying stats query with params: {attempt_params}")
+                            stats_response = requests.get(stats_url, headers=headers, params=attempt_params)
+                            stats_response.raise_for_status()
+                            
+                            stats_data = stats_response.json()
+                            st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
+                            
+                            if stats_data.get('data') and len(stats_data['data']) > 0:
+                                st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
+                                all_stats.extend(stats_data['data'])
+                                found_stats = True
+                                
+                                # Check what seasons we got
+                                seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
+                                st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
+                                
+                                # If we found 2025, 2024 or 2023 data, prefer that
+                                recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024', '2023']]
+                                if recent_stats:
+                                    st.success(f"🎯 Found {len(recent_stats)} recent season records!")
+                                    break
+                                    
+                        except Exception as attempt_error:
+                            st.warning(f"❌ Attempt failed: {attempt_error}")
+                            continue
                     
-                    if stats_data.get('data'):
-                        st.success(f"✅ Found {len(stats_data['data'])} stat records for {firstName} {lastName}!")
+                    # Remove duplicates and sort by season (most recent first)
+                    if all_stats:
+                        unique_stats = []
+                        seen_ids = set()
+                        for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
+                            stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
+                            if stat_id not in seen_ids:
+                                unique_stats.append(stat)
+                                seen_ids.add(stat_id)
+                        
+                        player['stats'] = unique_stats
+                        st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
+                        
+                        # Show season breakdown
+                        season_breakdown = {}
+                        for stat in unique_stats:
+                            season = stat.get('season', 'Unknown')
+                            season_breakdown[season] = season_breakdown.get(season, 0) + 1
+                        st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
+                        
                     else:
                         st.info(f"📊 No stats found for {firstName} {lastName} (player ID: {player_id})")
+                        player['stats'] = []
         
         return json.dumps(found_players)
         
@@ -140,21 +189,69 @@ def get_player_stats_only(firstName: str, lastName: str):
             "Content-Type": "application/json"
         }
         
-        # Fetch stats for this player
+        # Fetch stats for this player with multiple attempts for recent data
         stats_url = f"{NFL_API_BASE_URL}/stats"
-        stats_params = {"player_ids[]": player_id}
         
-        stats_response = requests.get(stats_url, headers=headers, params=stats_params)
-        stats_response.raise_for_status()
+        # Try different parameter combinations to get recent data
+        stats_attempts = [
+            {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
+            {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season
+            {"player_ids[]": player_id, "seasons[]": "2023"},  # Try 2023 season
+            {"player_ids[]": player_id},  # Default query
+            {"player_ids[]": player_id, "per_page": 100},  # More results
+        ]
         
-        stats_data = stats_response.json()
-        st.info(f"📊 Stats response: {str(stats_data)[:200]}...")
+        all_stats = []
         
-        if stats_data.get('data'):
-            st.success(f"✅ Found {len(stats_data['data'])} stat records for {firstName} {lastName}!")
+        for attempt_params in stats_attempts:
+            try:
+                st.info(f"🔍 Trying stats query with params: {attempt_params}")
+                stats_response = requests.get(stats_url, headers=headers, params=attempt_params)
+                stats_response.raise_for_status()
+                
+                stats_data = stats_response.json()
+                st.info(f"📊 Stats response for attempt: {str(stats_data)[:200]}...")
+                
+                if stats_data.get('data') and len(stats_data['data']) > 0:
+                    st.success(f"✅ Found {len(stats_data['data'])} stat records with these parameters!")
+                    all_stats.extend(stats_data['data'])
+                    
+                    # Check what seasons we got
+                    seasons = set([stat.get('season') for stat in stats_data['data'] if stat.get('season')])
+                    st.info(f"📅 Available seasons in this response: {sorted(seasons)}")
+                    
+                    # If we found 2025, 2024 or 2023 data, prefer that
+                    recent_stats = [stat for stat in stats_data['data'] if stat.get('season') in ['2025', '2024', '2023']]
+                    if recent_stats:
+                        st.success(f"🎯 Found {len(recent_stats)} recent season records!")
+                        break
+                        
+            except Exception as attempt_error:
+                st.warning(f"❌ Attempt failed: {attempt_error}")
+                continue
+        
+        # Remove duplicates and sort by season (most recent first)
+        if all_stats:
+            unique_stats = []
+            seen_ids = set()
+            for stat in sorted(all_stats, key=lambda x: x.get('season', ''), reverse=True):
+                stat_id = (stat.get('id'), stat.get('season'), stat.get('week'))
+                if stat_id not in seen_ids:
+                    unique_stats.append(stat)
+                    seen_ids.add(stat_id)
+            
+            st.success(f"✅ Final result: {len(unique_stats)} unique stat records for {firstName} {lastName}!")
+            
+            # Show season breakdown
+            season_breakdown = {}
+            for stat in unique_stats:
+                season = stat.get('season', 'Unknown')
+                season_breakdown[season] = season_breakdown.get(season, 0) + 1
+            st.info(f"📊 Stats by season: {dict(sorted(season_breakdown.items(), reverse=True))}")
+            
             return json.dumps({
                 "player": player,
-                "stats": stats_data['data']
+                "stats": unique_stats
             })
         else:
             st.info(f"📊 No stats found for {firstName} {lastName}")
@@ -241,10 +338,14 @@ if user_prompt:
                 "- Use `get_player_stats_only` when you specifically need just the statistical data for a player "
                 "IMPORTANT: These tools can answer questions like 'What team does [player] play for?', 'What position does [player] play?', and statistical questions. "
                 "The Ball Don't Lie NFL API contains comprehensive NFL football data including detailed player statistics. "
+                "The API will attempt to fetch the most recent available data, prioritizing 2025 (current season), 2024, and 2023 seasons. "
+                "If the user asks for 'last season' or 'recent stats', focus on the most recent season data available. "
                 "Once you have the data, provide a detailed analysis of the player's performance and value focusing on NFL statistics like passing yards, rushing yards, touchdowns, receptions, etc. "
-                "If you find no statistics for a player, explain that the player may not be in the Ball Don't Lie NFL database and suggest they try a different NFL player. "
+                "Always mention which seasons the statistics are from, and if recent data (2025/2024/2023) is available, highlight that. "
+                "If only older data is available, mention this limitation and suggest the user that the API may have limited recent data. "
                 "When presenting statistics, create comprehensive data tables with relevant NFL statistics such as: "
                 "Player Name, Team, Position, Season, Passing Yards, Passing Touchdowns, Rushing Yards, Rushing Touchdowns, Receptions, Receiving Yards, Receiving Touchdowns, and Fantasy Football Value. "
+                "Sort statistics by season (most recent first) and highlight the most recent season's performance. "
                 f"\n\nUser Question: {user_prompt}"
             )
 
