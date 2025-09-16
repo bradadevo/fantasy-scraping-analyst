@@ -143,13 +143,13 @@ else:
             with st.spinner("Analyzing players and generating your report..."):
                 try:
                     for player_name in selected_players:
-                        # Robust parsing of player name
+                        # Corrected and more robust parsing logic
                         full_name = player_name.split(' (')[0]
                         name_parts = full_name.split()
 
-                        first_name = name_parts[0] if len(name_parts) > 0 else ""
+                        first_name = name_parts[0] if name_parts else ""
                         last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
-
+                        
                         # --- The Prompt to Trigger Gemini's Tool Call ---
                         prompt_text = (
                             f"Act as a fantasy football analyst. I have provided player statistics for the NFL player {full_name}. If no statistics were found, state that you cannot perform the analysis and briefly explain why. Otherwise, use the provided data to analyze their fantasy value for the remainder of the season. Present the information in a single, comprehensive data table with the following columns: Player Name, Team, Position, Receptions, ReceivingYards, ReceivingTouchdowns, RushingYards, RushingTouchdowns, FumblesLost, and OverallFantasyFootballValue. Sort the table by highest to lowest ReceivingYards."
@@ -174,4 +174,19 @@ else:
                             
                             # --- Send the tool output back to Gemini for final reasoning ---
                             response_with_tool_output = model.generate_content(
-                                gen
+                                genai.types.FunctionResponse(
+                                    name="get_player_stats_from_mcp",
+                                    response={"content": tool_output}
+                                )
+                            )
+                            
+                            st.markdown("---")
+                            st.subheader(f"Report for {full_name}")
+                            st.markdown(response_with_tool_output.text)
+                            
+                        else:
+                            st.error(f"Gemini did not request a tool call for {full_name}. Here is its direct response:")
+                            st.markdown(response.text)
+
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
