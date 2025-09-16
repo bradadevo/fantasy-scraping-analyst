@@ -4,7 +4,9 @@ import requests
 import google.generativeai as genai
 import asyncio
 import mcp
-from mcp.client.streamable_http import streamable_http_client
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client # Corrected import
+from urllib.parse import urlencode
 import pandas as pd
 from datetime import datetime
 
@@ -50,11 +52,14 @@ def get_player_list_options(all_players):
 # --- SMITHERY MCP TOOL INTEGRATION ---
 async def call_mcp_tool(tool_name: str, **kwargs):
     """A helper function to call an MCP tool asynchronously."""
-    async with streamable_http_client(
-        MCP_SERVER_URL,
-        headers={'Authorization': f'Bearer {BALLDONTLIE_API_KEY}'}
-    ) as (read_stream, write_stream, _):
-        async with mcp.ClientSession(read_stream, write_stream) as session:
+    
+    # Construct the URL with the API key as a query parameter
+    params = {"api_key": st.secrets['BALLDONTLIE_API_KEY']}
+    url = f"{st.secrets['MCP_SERVER_URL']}?{urlencode(params)}"
+    
+    # Use the correct client name and URL
+    async with streamablehttp_client(url) as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
             result = await session.call_tool(tool_name=tool_name, input=kwargs)
             return result.content
 
@@ -134,8 +139,8 @@ else:
                 try:
                     for player_name in selected_players:
                         # Parse the player name into first and last name
-                        name_parts = player_name.split(' ')[0]
                         full_name = player_name.split(' (')[0]
+                        name_parts = full_name.split()
                         first_name = name_parts[0] if len(name_parts) > 0 else ""
                         last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
 
