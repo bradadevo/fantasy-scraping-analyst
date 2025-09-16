@@ -143,5 +143,54 @@ else:
             with st.spinner("Analyzing players and generating your report..."):
                 try:
                     for player_name in selected_players:
-                        # --- CORRECTED CODE FOR PARSING PLAYER NAMES ---
-                        full_name = player
+                        # Corrected and more robust parsing logic
+                        full_name = player_name.split(' (')[0]
+                        name_parts = full_name.split()
+                        
+                        first_name = name_parts[0] if name_parts else ""
+                        last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
+                        
+                        if not last_name:
+                           st.warning(f"Skipping {full_name} due to invalid name format.")
+                           continue
+
+                        # --- The Prompt to Trigger Gemini's Tool Call ---
+                        prompt_text = (
+                            f"Act as a fantasy football analyst. I have provided player statistics for the NFL player {full_name}. If no statistics were found, state that you cannot perform the analysis and briefly explain why. Otherwise, use the provided data to analyze their fantasy value for the remainder of the season. Present the information in a single, comprehensive data table with the following columns: Player Name, Team, Position, Receptions, ReceivingYards, ReceivingTouchdowns, RushingYards, RushingTouchdowns, FumblesLost, and OverallFantasyFootballValue. Sort the table by highest to lowest ReceivingYards."
+                        )
+
+                        # Start a chat session with the model and tools
+                        model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
+
+                        # Send the prompt and get a response
+                        response = model.generate_content(prompt_text)
+                        
+                        # Handle the potential function call
+                        function_call = response.candidates[0].content.parts[0].function_call
+
+                        if function_call:
+                            # --- Execute the tool and get data from MCP ---
+                            tool_output = get_player_stats_from_mcp(
+                                league="NFL",
+                                first_name=first_name,
+                                last_name=last_name
+                            )
+                            
+                            # --- Send the tool output back to Gemini for final reasoning ---
+                            response_with_tool_output = model.generate_content(
+                                genai.types.FunctionResponse(
+                                    name="get_player_stats_from_mcp",
+                                    response={"content": tool_output}
+                                )
+                            )
+                            
+                            st.markdown("---")
+                            st.subheader(f"Report for {full_name}")
+                            st.markdown(response_with_tool_output.text)
+                            
+                        else:
+                            st.error(f"Gemini did not request a tool call for {full_name}. Here is its direct response:")
+                            st.markdown(response.text)
+
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
