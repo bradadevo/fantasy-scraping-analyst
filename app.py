@@ -1204,9 +1204,6 @@ with col4:
             st.session_state.submitted_prompt = prompt
             st.rerun()
 
-# Processing Section - Gradient Divider
-st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
-
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
     
