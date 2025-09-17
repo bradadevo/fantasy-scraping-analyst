@@ -2,6 +2,9 @@ import streamlit as st
 import json
 import requests
 import time
+import pandas as pd
+import io
+import os
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -24,6 +27,12 @@ if 'api_call_times' not in st.session_state:
 
 if 'api_cache' not in st.session_state:
     st.session_state.api_cache = {}
+
+if 'csv_data' not in st.session_state:
+    st.session_state.csv_data = {}
+
+if 'preloaded_csv' not in st.session_state:
+    st.session_state.preloaded_csv = None
 
 def rate_limit_decorator(func):
     """Decorator to enforce rate limiting of 60 requests per minute"""
@@ -100,6 +109,125 @@ def make_api_request(endpoint, params=None):
     cache_response(endpoint, params, response_data)
     
     return response_data
+
+# --- CSV DATA HANDLING FUNCTIONS ---
+def load_preloaded_csv():
+    """Load the pre-loaded CSV file with enhanced NFL data"""
+    csv_path = "enhanced_nfl_data.csv"
+    
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path)
+            st.session_state.preloaded_csv = df
+            return df
+        except Exception as e:
+            st.warning(f"Error loading pre-loaded CSV: {e}")
+            return None
+    else:
+        # Create a sample enhanced data CSV if it doesn't exist
+        sample_data = {
+            'player_name': ['Patrick Mahomes', 'Josh Allen', 'Lamar Jackson', 'Dak Prescott', 'C.J. Stroud'],
+            'fantasy_projection_2025': [24.5, 23.8, 22.1, 19.7, 18.4],
+            'strength_of_schedule': [0.52, 0.48, 0.55, 0.50, 0.53],
+            'injury_risk': ['Low', 'Medium', 'Medium', 'Low', 'Low'],
+            'bye_week': [12, 12, 14, 7, 14],
+            'adp_ranking': [15, 22, 28, 45, 67],
+            'target_share_projection': [0.0, 0.0, 0.0, 0.0, 0.0],  # QBs don't have target share
+            'red_zone_efficiency': [0.65, 0.58, 0.62, 0.54, 0.48],
+            'playoff_schedule_difficulty': [3, 2, 4, 3, 2]
+        }
+        
+        df = pd.DataFrame(sample_data)
+        df.to_csv(csv_path, index=False)
+        st.session_state.preloaded_csv = df
+        st.info(f"Created sample enhanced data file: {csv_path}")
+        return df
+
+def process_uploaded_csv(uploaded_file):
+    """Process user-uploaded CSV file"""
+    try:
+        # Read the CSV file
+        df = pd.read_csv(uploaded_file)
+        
+        # Store in session state with filename
+        filename = uploaded_file.name
+        st.session_state.csv_data[filename] = df
+        
+        return df, filename
+    except Exception as e:
+        st.error(f"Error processing CSV file: {e}")
+        return None, None
+
+def merge_api_and_csv_data(api_data, csv_data=None, preloaded_csv=None):
+    """Merge API data with CSV data for enhanced analysis"""
+    try:
+        # Parse API data if it's a string
+        if isinstance(api_data, str):
+            api_data = json.loads(api_data)
+        
+        # Extract player name from API data
+        player_name = None
+        if isinstance(api_data, list) and len(api_data) > 0:
+            player = api_data[0]
+            first_name = player.get('first_name', '')
+            last_name = player.get('last_name', '')
+            player_name = f"{first_name} {last_name}".strip()
+        elif isinstance(api_data, dict) and api_data.get('player'):
+            player = api_data['player']
+            first_name = player.get('first_name', '')
+            last_name = player.get('last_name', '')
+            player_name = f"{first_name} {last_name}".strip()
+        
+        enhanced_data = {
+            'api_data': api_data,
+            'player_name': player_name,
+            'csv_matches': {},
+            'available_csv_files': list(st.session_state.csv_data.keys()) if st.session_state.csv_data else []
+        }
+        
+        # Try to match with uploaded CSV data
+        if csv_data is not None and player_name:
+            for filename, df in st.session_state.csv_data.items():
+                matches = find_player_in_csv(df, player_name)
+                if matches:
+                    enhanced_data['csv_matches'][filename] = matches
+        
+        # Try to match with preloaded CSV
+        if preloaded_csv is not None and player_name:
+            matches = find_player_in_csv(preloaded_csv, player_name)
+            if matches:
+                enhanced_data['csv_matches']['preloaded_enhanced_data'] = matches
+        
+        return enhanced_data
+        
+    except Exception as e:
+        st.error(f"Error merging data: {e}")
+        return {'api_data': api_data, 'error': str(e)}
+
+def find_player_in_csv(df, player_name):
+    """Find player matches in CSV data using fuzzy matching"""
+    matches = []
+    
+    # Common column names that might contain player names
+    name_columns = ['player_name', 'name', 'Player', 'Player Name', 'full_name', 'player']
+    
+    for col in df.columns:
+        if col.lower() in [c.lower() for c in name_columns]:
+            # Direct match
+            direct_match = df[df[col].str.contains(player_name, case=False, na=False)]
+            if not direct_match.empty:
+                matches.extend(direct_match.to_dict('records'))
+            
+            # Fuzzy match (last name only)
+            last_name = player_name.split()[-1] if ' ' in player_name else player_name
+            fuzzy_match = df[df[col].str.contains(last_name, case=False, na=False)]
+            if not fuzzy_match.empty:
+                # Avoid duplicates
+                for record in fuzzy_match.to_dict('records'):
+                    if record not in matches:
+                        matches.append(record)
+    
+    return matches
 
 # --- STREAMLIT APP LAYOUT ---
 st.set_page_config(page_title="NFL Player Analyst", layout="wide", page_icon="🏈")
@@ -238,7 +366,141 @@ st.markdown("""
 
 st.title("🏈 NFL Player Analyst")
 
-# --- The Natural Language Input Field ---
+# --- CSV DATA UPLOAD SECTION ---
+st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
+    padding: 20px;
+    border-radius: 15px;
+    margin: 20px 0;
+    text-align: center;
+    color: white;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+">
+    <h3 style="margin: 0; font-size: 1.8em;">📊 Enhanced Data Analysis</h3>
+    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Upload your own CSV data or use our enhanced NFL dataset</p>
+</div>
+""", unsafe_allow_html=True)
+
+with st.expander("🔧 CSV Data Management", expanded=False):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📤 Upload Your CSV")
+        uploaded_files = st.file_uploader(
+            "Upload CSV files with additional NFL data",
+            type=['csv'],
+            accept_multiple_files=True,
+            help="Upload fantasy projections, advanced metrics, injury reports, or any supplementary NFL data"
+        )
+        
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                if uploaded_file.name not in st.session_state.csv_data:
+                    df, filename = process_uploaded_csv(uploaded_file)
+                    if df is not None:
+                        st.success(f"✅ Loaded: {filename} ({len(df)} rows)")
+                        
+                        # Show preview
+                        with st.expander(f"Preview: {filename}", expanded=False):
+                            st.dataframe(df.head())
+                            st.info(f"Columns: {', '.join(df.columns.tolist())}")
+    
+    with col2:
+        st.markdown("### 📋 Pre-loaded Enhanced Data")
+        
+        if st.button("🔄 Refresh Enhanced Data", help="Reload the pre-loaded enhanced NFL dataset"):
+            load_preloaded_csv()
+            st.success("✅ Enhanced data refreshed!")
+        
+        if st.session_state.preloaded_csv is not None:
+            st.success(f"✅ Enhanced data loaded ({len(st.session_state.preloaded_csv)} players)")
+            
+            with st.expander("Preview Enhanced Data", expanded=False):
+                st.dataframe(st.session_state.preloaded_csv.head())
+                st.info(f"Enhanced metrics: {', '.join(st.session_state.preloaded_csv.columns.tolist())}")
+        else:
+            if st.button("📊 Load Enhanced Data"):
+                load_preloaded_csv()
+                st.rerun()
+    
+    # Show currently loaded CSV files
+    if st.session_state.csv_data or st.session_state.preloaded_csv is not None:
+        st.markdown("### 📈 Available Data Sources")
+        
+        # User uploaded files
+        if st.session_state.csv_data:
+            st.markdown("**🔹 User Uploaded Files:**")
+            for filename, df in st.session_state.csv_data.items():
+                col_a, col_b, col_c = st.columns([3, 1, 1])
+                with col_a:
+                    st.text(f"📄 {filename}")
+                with col_b:
+                    st.text(f"{len(df)} rows")
+                with col_c:
+                    if st.button("🗑️", key=f"delete_{filename}", help=f"Remove {filename}"):
+                        del st.session_state.csv_data[filename]
+                        st.rerun()
+        
+        # Pre-loaded data
+        if st.session_state.preloaded_csv is not None:
+            st.markdown("**🔹 Pre-loaded Enhanced Data:**")
+            st.text(f"📊 Enhanced NFL Dataset ({len(st.session_state.preloaded_csv)} players)")
+    else:
+        st.info("💡 Upload CSV files or load enhanced data to enable advanced analysis features!")
+
+# Load preloaded CSV on app start
+if st.session_state.preloaded_csv is None:
+    load_preloaded_csv()
+
+# --- AI-Powered NFL Analysis ---
+# Initialize session state variables
+if 'selected_prompt' not in st.session_state:
+    st.session_state.selected_prompt = ""
+
+if 'submitted_prompt' not in st.session_state:
+    st.session_state.submitted_prompt = ""
+
+st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 15px;
+    margin: 20px 0;
+    text-align: center;
+    color: white;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+">
+    <h2 style="margin: 0; font-size: 2.2em;">🏈 AI-Powered NFL Analysis</h2>
+    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Get instant analysis on any NFL player, team, or stat with enhanced data insights</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Create a form to handle submission properly
+with st.form(key="query_form", clear_on_submit=False):
+    user_prompt = st.text_input(
+        "Ask about any NFL player, team, or stat",
+        placeholder="e.g., What were the stats for Patrick Mahomes last season?",
+        value=st.session_state.selected_prompt,
+        help="Ask about any NFL player stats, team performance, weekly data, or league standings"
+    )
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        submit_button = st.form_submit_button("🔍 Analyze", use_container_width=True, type="primary")
+    with col2:
+        if st.form_submit_button("🗑️ Clear", use_container_width=True):
+            st.session_state.selected_prompt = ""
+            st.session_state.submitted_prompt = ""
+            st.rerun()
+
+# Process form submission
+if submit_button and user_prompt.strip():
+    st.session_state.submitted_prompt = user_prompt.strip()
+elif submit_button and not user_prompt.strip():
+    st.warning("⚠️ Please enter a question before clicking Analyze!")
+
+# --- Function Definitions ---
 def get_nfl_teams(division=None, conference=None):
     """Get NFL teams with optional filtering by division or conference"""
     try:
@@ -377,6 +639,37 @@ def get_comprehensive_player_analysis(firstName: str, lastName: str):
         
     except Exception as e:
         st.error(f"Error in comprehensive analysis: {e}")
+        return json.dumps({"error": str(e)})
+
+def get_enhanced_player_analysis_with_csv(firstName: str, lastName: str):
+    """
+    Get comprehensive player analysis combining API data with CSV data for enhanced insights
+    """
+    try:
+        with st.expander("🔍 Enhanced Analysis with CSV Data", expanded=False):
+            st.info(f"🔍 Performing enhanced analysis for {firstName} {lastName} with CSV data integration...")
+            
+            # Get comprehensive API data first
+            api_analysis = get_comprehensive_player_analysis(firstName, lastName)
+            
+            # Load preloaded CSV if not already loaded
+            if st.session_state.preloaded_csv is None:
+                st.info("📋 Loading enhanced NFL data...")
+                load_preloaded_csv()
+            
+            # Merge API data with CSV data
+            enhanced_data = merge_api_and_csv_data(
+                api_analysis,
+                csv_data=st.session_state.csv_data,
+                preloaded_csv=st.session_state.preloaded_csv
+            )
+            
+            st.success("✅ Enhanced analysis complete with CSV data integration!")
+            
+        return json.dumps(enhanced_data)
+        
+    except Exception as e:
+        st.error(f"Error in enhanced CSV analysis: {e}")
         return json.dumps({"error": str(e)})
 def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool = True):
     """
@@ -658,6 +951,24 @@ tool_declarations = [
                 }
             },
             {
+                "name": "get_enhanced_player_analysis_with_csv",
+                "description": "Gets the most comprehensive analysis of an NFL player combining live API data with CSV data (user-uploaded and pre-loaded enhanced data) for the richest possible analysis including projections, rankings, and supplementary metrics.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "firstName": {
+                            "type": "string",
+                            "description": "The first name of the NFL player."
+                        },
+                        "lastName": {
+                            "type": "string",
+                            "description": "The last name of the NFL player."
+                        }
+                    },
+                    "required": ["firstName", "lastName"]
+                }
+            },
+            {
                 "name": "get_nfl_teams",
                 "description": "Gets information about NFL teams, with optional filtering by division or conference.",
                 "parameters": {
@@ -750,33 +1061,10 @@ tool_declarations = [
 ]
 
 
-# --- The Natural Language Input Field ---
-if 'selected_prompt' not in st.session_state:
-    st.session_state.selected_prompt = ""
-
-if 'submitted_prompt' not in st.session_state:
-    st.session_state.submitted_prompt = ""
-
-# --- AI Search Box ---
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px;
-    border-radius: 15px;
-    margin: 20px 0;
-    text-align: center;
-    color: white;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-">
-    <h2 style="margin: 0; font-size: 2.2em;">🔍 AI Search Box</h2>
-    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Get instant analysis on any NFL player, team, or stat</p>
-</div>
-""", unsafe_allow_html=True)
-
 # Create a form to handle submission properly
 with st.form(key="query_form", clear_on_submit=False):
     user_prompt = st.text_input(
-        "",
+        "Ask about any NFL player, team, or stat",
         placeholder="e.g., What were the stats for Patrick Mahomes last season?",
         value=st.session_state.selected_prompt,
         help="Ask about any NFL player stats, team performance, weekly data, or league standings"
@@ -881,12 +1169,13 @@ if st.session_state.get('submitted_prompt'):
         try:
             # Add context to the prompt to guide Gemini's behavior
             context_prompt = (
-                "You are a top-tier NFL analyst with access to comprehensive NFL data. Your task is to analyze the user's question and use the appropriate tools:\n"
+                "You are a top-tier NFL analyst with access to comprehensive NFL data AND supplementary CSV data. Your task is to analyze the user's question and use the appropriate tools:\n"
                 "\n"
                 "PLAYER ANALYSIS TOOLS:\n"
                 "- `get_player_stats_from_api` - Basic player info, team, position, and stats\n"
                 "- `get_player_stats_only` - Just statistical data for a player\n" 
                 "- `get_comprehensive_player_analysis` - Complete analysis including season stats, advanced metrics, injury status, and team info\n"
+                "- `get_enhanced_player_analysis_with_csv` - MOST COMPREHENSIVE: Combines API data with CSV data (projections, rankings, advanced metrics)\n"
                 "\n"
                 "TEAM & LEAGUE TOOLS:\n"
                 "- `get_nfl_teams` - Get team information, filter by division or conference\n"
@@ -897,10 +1186,41 @@ if st.session_state.get('submitted_prompt'):
                 "TOOL SELECTION GUIDELINES:\n"
                 "- For basic player questions → use `get_player_stats_from_api`\n"
                 "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
+                "- For ENHANCED analysis with projections/rankings → use `get_enhanced_player_analysis_with_csv`\n"
                 "- For weekly data (week 1, week 2, etc.) → use `get_nfl_games` with week filters\n"
-                "- For team comparisons → use `get_nfl_teams` and `get_nfl_season_stats`\n"
+                "- For team comparisons → FIRST use `get_nfl_teams` to get team IDs, THEN use `get_nfl_season_stats` with team_id filter\n"
+                "- For team information only → use `get_nfl_teams`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
                 "- For game schedules/matchups → use `get_nfl_games`\n"
+                "\n"
+                "CRITICAL FOR TEAM COMPARISONS:\n"
+                "When users ask to compare teams (like Buffalo Bills vs Kansas City Chiefs):\n"
+                "1. FIRST call `get_nfl_teams` to get basic team information\n"
+                "2. THEN call `get_nfl_season_stats` with team_id parameters for each team\n"
+                "3. THEN call `get_nfl_standings` for current season context\n"
+                "4. You MUST make these function calls - do not just return empty data\n"
+                "5. Use the actual team data returned from the API calls to create your comparison\n"
+                "\n"
+                "EXAMPLE: For 'compare Buffalo Bills and Kansas City Chiefs':\n"
+                "- Call get_nfl_teams() to find team IDs and basic info\n"
+                "- Call get_nfl_season_stats(season=2025, team_id=BILLS_ID) \n"
+                "- Call get_nfl_season_stats(season=2025, team_id=CHIEFS_ID)\n"
+                "- Call get_nfl_standings(season=2025) for context\n"
+                "\n"
+                "CSV DATA CAPABILITIES:\n"
+                "- Fantasy projections and rankings\n"
+                "- Advanced metrics (strength of schedule, target share, etc.)\n"
+                "- Injury risk assessments\n"
+                "- Bye week information\n"
+                "- ADP (Average Draft Position) data\n"
+                "- Playoff schedule difficulty\n"
+                "\n"
+                "WHEN TO USE ENHANCED CSV ANALYSIS:\n"
+                "- Fantasy football questions\n"
+                "- Draft strategy inquiries\n"
+                "- Player comparisons for fantasy\n"
+                "- Questions about projections or rankings\n"
+                "- Advanced metrics requests\n"
                 "\n"
                 "DATA PRESENTATION REQUIREMENTS:\n"
                 "- ALWAYS format statistical data as markdown tables with proper headers\n"
@@ -910,24 +1230,16 @@ if st.session_state.get('submitted_prompt'):
                 "- Sort data by most relevant metrics (recent season first, highest stats, etc.)\n"
                 "- Add summary insights and key highlights after each table\n"
                 "- Use bold formatting for standout numbers and achievements\n"
-                "- ALWAYS format data statistics in a horizontal view with headers reading left to right\n"
                 "- Include comparative context (league averages, rankings, etc.) when relevant\n"
+                "- When CSV data is available, create separate sections for 'Live Stats' and 'Enhanced Metrics'\n"
                 "\n"
-                "VISUAL FORMATTING EXAMPLES:\n"
-                "```\n"
-                "## 🏈 Patrick Mahomes - 2024 Season Stats\n"
+                "CSV DATA INTEGRATION:\n"
+                "- When using enhanced analysis, clearly distinguish between API data and CSV data\n"
+                "- Create separate tables for live stats vs projections/rankings\n"
+                "- Highlight unique insights only available through CSV data\n"
+                "- Use CSV data to provide context and recommendations\n"
                 "\n"
-                "### 📊 Passing Statistics\n"
-                "| Stat | Value | Rank |\n"
-                "|------|-------|------|\n"
-                "| **Passing Yards** | **4,183** | 🥇 #1 |\n"
-                "| **Touchdowns** | **31** | 🥈 #2 |\n"
-                "| **Completion %** | **67.8%** | 🥉 #3 |\n"
-                "\n"
-                "### 🎯 Key Highlights\n"
-                "- 🔥 **Elite Performance**: Led league in passing yards\n"
-                "- ⭐ **Consistency**: 67.8% completion rate shows accuracy\n"
-                "```\n"
+                f"CSV DATA STATUS: {len(st.session_state.csv_data)} user files uploaded, {'Enhanced data loaded' if st.session_state.preloaded_csv is not None else 'No enhanced data'}\n"
                 "\n"
                 "The Ball Don't Lie NFL API contains comprehensive data prioritizing 2025 (current season), 2024, and 2023 seasons. "
                 "Always mention which seasons the statistics are from. If recent data (2025/2024/2023) is available, highlight that. "
@@ -979,6 +1291,11 @@ if st.session_state.get('submitted_prompt'):
                                 firstName=function_call.args['firstName'],
                                 lastName=function_call.args['lastName']
                             )
+                        elif function_call.name == "get_enhanced_player_analysis_with_csv":
+                            tool_output = get_enhanced_player_analysis_with_csv(
+                                firstName=function_call.args['firstName'],
+                                lastName=function_call.args['lastName']
+                            )
                         elif function_call.name == "get_nfl_teams":
                             teams_data = get_nfl_teams(
                                 division=function_call.args.get('division'),
@@ -999,6 +1316,14 @@ if st.session_state.get('submitted_prompt'):
                             )
                             tool_output = json.dumps(season_stats_data)
 
+                        elif function_call.name == "get_nfl_games":
+                            games_data = get_nfl_games(
+                                seasons=function_call.args.get('seasons'),
+                                team_ids=function_call.args.get('team_ids'),
+                                weeks=function_call.args.get('weeks'),
+                                postseason=function_call.args.get('postseason')
+                            )
+                            tool_output = json.dumps(games_data)
                         else:
                             tool_output = json.dumps({"error": f"Unknown function: {function_call.name}"})
 
@@ -1047,6 +1372,25 @@ if st.session_state.get('submitted_prompt'):
                             generation_config=generation_config
                         )
                         status.update(label="Report generated!", state="complete")
+                        
+                    # Debug: Show what we got from Gemini
+                    with st.expander("🔧 Gemini Response Debug", expanded=False):
+                        st.write("**Response object:**", str(response_with_tool_output)[:500] + "...")
+                        if hasattr(response_with_tool_output, 'candidates'):
+                            st.write("**Has candidates:**", len(response_with_tool_output.candidates) if response_with_tool_output.candidates else 0)
+                            if response_with_tool_output.candidates and len(response_with_tool_output.candidates) > 0:
+                                candidate = response_with_tool_output.candidates[0]
+                                st.write("**Candidate content:**", str(candidate.content)[:200] + "...")
+                                if hasattr(candidate.content, 'parts'):
+                                    st.write("**Parts count:**", len(candidate.content.parts) if candidate.content.parts else 0)
+                                    for i, part in enumerate(candidate.content.parts):
+                                        st.write(f"**Part {i}:**", str(part)[:200] + "...")
+                                        if hasattr(part, 'text'):
+                                            st.write(f"**Part {i} text length:**", len(part.text) if part.text else 0)
+                        
+                        # Also try the .text property
+                        if hasattr(response_with_tool_output, 'text'):
+                            st.write("**Direct .text property:**", response_with_tool_output.text[:200] + "..." if response_with_tool_output.text else "None")
 
                     st.markdown("---")
                     
@@ -1103,7 +1447,7 @@ if st.session_state.get('submitted_prompt'):
                         if response_with_tool_output.candidates and response_with_tool_output.candidates[0].content.parts:
                             response_text = ""
                             for part in response_with_tool_output.candidates[0].content.parts:
-                                if hasattr(part, 'text'):
+                                if hasattr(part, 'text') and part.text:
                                     response_text += part.text
                             
                             if response_text:
@@ -1123,119 +1467,135 @@ if st.session_state.get('submitted_prompt'):
                                     st.markdown(response_text)
                                     
                                     st.markdown("</div>", unsafe_allow_html=True)
-                                    
-                                # Add comprehensive fantasy analysis outlook at the end
-                                st.markdown("---")
-                                st.markdown("""
-                                <div style="
-                                    background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 50%, #45B7D1 100%);
-                                    padding: 25px;
-                                    border-radius: 15px;
-                                    margin: 25px 0;
-                                    text-align: center;
-                                    color: white;
-                                    box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
-                                ">
-                                    <h2 style="margin: 0 0 15px 0; font-size: 2.2em;">🏆 Fantasy Football Outlook</h2>
-                                    <p style="margin: 0; font-size: 1.2em; opacity: 0.95;">Data-driven insights for your fantasy lineup decisions</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                # Generate additional fantasy analysis with processed_prompt
-                                fantasy_prompt = f"""
-                                Based on the NFL data analysis above for the query: "{processed_prompt}"
-                                
-                                Provide a comprehensive FANTASY FOOTBALL OUTLOOK section with the following:
-                                
-                                **CRITICAL**: Use ONLY the actual data from the previous analysis. Do not make up any statistics.
-                                
-                                Create a polished fantasy analysis with:
-                                
-                                ### 🎯 Fantasy Summary
-                                - Overall fantasy assessment based on real performance data
-                                - Position ranking and tier placement (if determinable from data)
-                                - Key fantasy-relevant metrics from the actual stats
-                                
-                                ### 📊 Fantasy Performance Breakdown
-                                Create a table with fantasy-relevant metrics from the actual data:
-                                - Points per game calculations from real stats
-                                - Consistency ratings based on actual performance
-                                - Red zone opportunities and efficiency
-                                - Target share and usage (for skill positions)
-                                
-                                ### 🔮 Weekly Outlook & Recommendations
-                                - Start/Sit recommendation based on performance trends
-                                - Matchup analysis (if schedule/opponent data available)
-                                - Risk/Reward assessment from actual performance patterns
-                                - Injury considerations (if injury data was provided)
-                                
-                                ### 💎 Trade & Waiver Analysis
-                                - Current trade value based on performance
-                                - Buy-low or sell-high opportunities
-                                - Waiver wire priority (for emerging players)
-                                - ROS (Rest of Season) outlook based on trends
-                                
-                                ### 🎲 Key Fantasy Takeaways
-                                - 3-5 bullet points with actionable fantasy advice
-                                - Based entirely on the real data analysis
-                                - Include confidence level in recommendations
-                                
-                                Format with rich markdown, emojis, and professional presentation.
-                                """
-                                
-                                # Generate fantasy analysis
-                                fantasy_response = model.generate_content(
-                                    fantasy_prompt,
-                                    generation_config=generation_config
-                                )
-                                
-                                # Display fantasy analysis
-                                if fantasy_response.candidates and fantasy_response.candidates[0].content.parts:
-                                    fantasy_text = ""
-                                    for part in fantasy_response.candidates[0].content.parts:
-                                        if hasattr(part, 'text'):
-                                            fantasy_text += part.text
-                                    
-                                    if fantasy_text:
-                                        st.markdown("""
-                                        <div style="
-                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                            padding: 25px;
-                                            border-radius: 15px;
-                                            margin: 20px 0;
-                                            border: 2px solid rgba(255, 107, 107, 0.3);
-                                            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-                                            color: white;
-                                        ">
-                                        """, unsafe_allow_html=True)
-                                        
-                                        st.markdown(fantasy_text)
-                                        
-                                        st.markdown("</div>", unsafe_allow_html=True)
-                                
-                                # Add a footer with additional info
-                                st.markdown("""
-                                <div style="
-                                    text-align: center;
-                                    padding: 15px;
-                                    margin-top: 20px;
-                                    background: rgba(102, 126, 234, 0.1);
-                                    border-radius: 10px;
-                                    font-size: 0.9em;
-                                    color: #666;
-                                ">
-                                    📊 <strong>Data Source:</strong> Ball Don't Lie NFL API | 
-                                    🤖 <strong>Analysis:</strong> Google Gemini AI | 
-                                    ⚡ <strong>Optimized:</strong> Smart caching & rate limiting
-                                </div>
-                                """, unsafe_allow_html=True)
                             else:
                                 st.error("No text content found in the response.")
+                                st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
                         else:
                             st.error("No valid response content received from Gemini.")
+                            st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
                     except Exception as text_error:
                         st.error(f"Error accessing response text: {text_error}")
-                        st.write("Raw response:", str(response_with_tool_output)[:500] + "...")
+                        st.write("Debug - Raw response:", str(response_with_tool_output)[:500] + "...")
+                        
+                        # Try alternative text extraction
+                        try:
+                            if hasattr(response_with_tool_output, 'text'):
+                                st.markdown("**Alternative text extraction:**")
+                                st.markdown(response_with_tool_output.text)
+                            else:
+                                st.write("No .text attribute found on response")
+                        except Exception as alt_error:
+                            st.error(f"Alternative extraction also failed: {alt_error}")
+                    
+                    # Add comprehensive fantasy analysis outlook at the end (if we have a processed prompt)
+                    if 'processed_prompt' in locals() and processed_prompt:
+                        st.markdown("---")
+                        st.markdown("""
+                        <div style="
+                            background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 50%, #45B7D1 100%);
+                            padding: 25px;
+                            border-radius: 15px;
+                            margin: 25px 0;
+                            text-align: center;
+                            color: white;
+                            box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
+                        ">
+                            <h2 style="margin: 0 0 15px 0; font-size: 2.2em;">🏆 Fantasy Football Outlook</h2>
+                            <p style="margin: 0; font-size: 1.2em; opacity: 0.95;">Data-driven insights for your fantasy lineup decisions</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Generate additional fantasy analysis with processed_prompt
+                        fantasy_prompt = f"""
+                        Based on the NFL data analysis above for the query: "{processed_prompt}"
+                        
+                        Provide a comprehensive FANTASY FOOTBALL OUTLOOK section with the following:
+                        
+                        **CRITICAL**: Use ONLY the actual data from the previous analysis. Do not make up any statistics.
+                        
+                        Create a polished fantasy analysis with:
+                        
+                        ### 🎯 Fantasy Summary
+                        - Overall fantasy assessment based on real performance data
+                        - Position ranking and tier placement (if determinable from data)
+                        - Key fantasy-relevant metrics from the actual stats
+                        
+                        ### 📊 Fantasy Performance Breakdown
+                        Create a table with fantasy-relevant metrics from the actual data:
+                        - Points per game calculations from real stats
+                        - Consistency ratings based on actual performance
+                        - Red zone opportunities and efficiency
+                        - Target share and usage (for skill positions)
+                        
+                        ### 🔮 Weekly Outlook & Recommendations
+                        - Start/Sit recommendation based on performance trends
+                        - Matchup analysis (if schedule/opponent data available)
+                        - Risk/Reward assessment from actual performance patterns
+                        - Injury considerations (if injury data was provided)
+                        
+                        ### 💎 Trade & Waiver Analysis
+                        - Current trade value based on performance
+                        - Buy-low or sell-high opportunities
+                        - Waiver wire priority (for emerging players)
+                        - ROS (Rest of Season) outlook based on trends
+                        
+                        ### 🎲 Key Fantasy Takeaways
+                        - 3-5 bullet points with actionable fantasy advice
+                        - Based entirely on the real data analysis
+                        - Include confidence level in recommendations
+                        
+                        Format with rich markdown, emojis, and professional presentation.
+                        """
+                        
+                        try:
+                            # Generate fantasy analysis
+                            fantasy_response = model.generate_content(
+                                fantasy_prompt,
+                                generation_config=generation_config
+                            )
+                            
+                            # Display fantasy analysis
+                            if fantasy_response.candidates and fantasy_response.candidates[0].content.parts:
+                                fantasy_text = ""
+                                for part in fantasy_response.candidates[0].content.parts:
+                                    if hasattr(part, 'text') and part.text:
+                                        fantasy_text += part.text
+                                
+                                if fantasy_text:
+                                    st.markdown("""
+                                    <div style="
+                                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                        padding: 25px;
+                                        border-radius: 15px;
+                                        margin: 20px 0;
+                                        border: 2px solid rgba(255, 107, 107, 0.3);
+                                        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+                                        color: white;
+                                    ">
+                                    """, unsafe_allow_html=True)
+                                    
+                                    st.markdown(fantasy_text)
+                                    
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                        except Exception as fantasy_error:
+                            st.warning(f"Could not generate fantasy analysis: {fantasy_error}")
+                        
+                        # Add a footer with additional info
+                        st.markdown("""
+                        <div style="
+                            text-align: center;
+                            padding: 15px;
+                            margin-top: 20px;
+                            background: rgba(102, 126, 234, 0.1);
+                            border-radius: 10px;
+                            font-size: 0.9em;
+                            color: #666;
+                        ">
+                            📊 <strong>Data Source:</strong> Ball Don't Lie NFL API | 
+                            🤖 <strong>Analysis:</strong> Google Gemini AI | 
+                            ⚡ <strong>Optimized:</strong> Smart caching & rate limiting
+                        </div>
+                        """, unsafe_allow_html=True)
                 else:
                     st.error("Gemini could not fulfill the request using its tools. Here is its direct response:")
                     st.markdown(response.text)
