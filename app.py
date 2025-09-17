@@ -757,6 +757,50 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
     except Exception as e:
         return f"Error generating response: {str(e)}"
 
+# Generate intelligent follow-up suggestions based on analysis content
+def generate_smart_followup_suggestions(question, response_text, analysis_data):
+    """
+    Generate contextual follow-up suggestions based on the actual analysis content
+    """
+    question_lower = question.lower()
+    response_lower = response_text.lower() if response_text else ""
+    
+    suggestions = []
+    
+    # Detect content type and generate relevant suggestions
+    if any(term in question_lower for term in ['stats', 'statistics', 'performance']):
+        # For statistical queries
+        if 'fantasy' not in response_lower:
+            suggestions.append(("🏆 Fantasy Impact", "How do these stats translate to fantasy value?"))
+        suggestions.append(("📈 Trend Analysis", "What trends do you see in these numbers?"))
+        suggestions.append(("🎯 Context", "How do these stats compare to league average?"))
+        
+    elif any(term in question_lower for term in ['compare', 'vs', 'versus']):
+        # For comparison queries
+        suggestions.append(("💡 Key Differences", "What are the most important differences between them?"))
+        suggestions.append(("🏆 Better Choice", "Who would you recommend and why?"))
+        suggestions.append(("📊 Advanced Metrics", "Compare their advanced analytics and efficiency"))
+        
+    elif any(term in question_lower for term in ['team', 'chiefs', 'bills', 'patriots']):
+        # For team queries
+        suggestions.append(("⭐ Key Players", "Who are the most important players on this team?"))
+        suggestions.append(("🎯 Strengths/Weaknesses", "What are this team's biggest strengths and weaknesses?"))
+        suggestions.append(("📅 Schedule Impact", "How might their schedule affect performance?"))
+        
+    else:
+        # General suggestions based on response content
+        if any(stat in response_lower for stat in ['yards', 'touchdowns', 'passing', 'rushing']):
+            suggestions.append(("🏆 Fantasy Outlook", "What's the fantasy football perspective on this?"))
+            suggestions.append(("📈 Season Projection", "How might this trend continue this season?"))
+        
+        if 'injury' not in response_lower and 'health' not in response_lower:
+            suggestions.append(("⚕️ Health Status", "Any injury concerns or health factors to consider?"))
+        
+        suggestions.append(("🎯 Bottom Line", "What's the most important takeaway from this analysis?"))
+    
+    # Limit to 3 most relevant suggestions
+    return suggestions[:3]
+
 # --- Function Definitions ---
 @api_error_handler("teams")
 def get_nfl_teams(division=None, conference=None):
@@ -878,17 +922,15 @@ def get_comprehensive_player_analysis(firstName: str, lastName: str):
             
             if player_id:
                 # OPTIMIZATION: Only fetch the most recent season stats to reduce API calls
-                st.info("📊 Fetching recent season statistics...")
                 # Try 2025 first, then 2024 as fallback - only make 1-2 calls instead of 3
                 for season in [2025, 2024]:
                     season_stats = get_nfl_season_stats(season, player_ids=[player_id])
                     if season_stats.get('data') and len(season_stats['data']) > 0:
                         comprehensive_data["additional_data"][f"season_{season}_stats"] = season_stats
-                        st.success(f"✅ Found {season} season data, skipping older seasons to save API calls")
+                        # Found current season data, skip older seasons
                         break  # Stop after finding the first available season
                         
                 # Get injury information (1 API call)
-                st.info("🏥 Checking injury status...")
                 injuries = get_nfl_player_injuries(player_ids=[player_id])
                 if injuries.get('data'):
                     comprehensive_data["additional_data"]["injuries"] = injuries
@@ -1325,11 +1367,26 @@ if st.session_state.get('submitted_prompt'):
                     # Clear the submitted prompt
                     st.session_state.submitted_prompt = ""
                     
-                    # Add follow-up prompt interface
+                    # Smart follow-up suggestions for direct LLM responses
                     st.markdown("---")
-                    st.markdown("### 💭 Ask Another Follow-up Question")
+                    st.markdown("### 💭 Continue the Conversation")
+                    
+                    smart_suggestions = generate_smart_followup_suggestions(
+                        current_question, response_text, st.session_state.last_analysis_data
+                    )
+                    
+                    if smart_suggestions:
+                        st.markdown("**💡 Suggested follow-ups:**")
+                        cols = st.columns(len(smart_suggestions))
+                        for i, (label, question) in enumerate(smart_suggestions):
+                            with cols[i]:
+                                if st.button(label, key=f"direct_smart_followup_{i}", help=question):
+                                    st.session_state.submitted_prompt = question
+                                    st.rerun()
+                    
+                    # Custom follow-up input
                     follow_up_question = st.text_input(
-                        "Continue the conversation:",
+                        "Or ask your own question:",
                         placeholder="Ask for more details, comparisons, explanations...",
                         key="followup_direct_input"
                     )
@@ -1593,24 +1650,17 @@ if st.session_state.get('submitted_prompt'):
                         )
                         status.update(label="Report generated!", state="complete")
                         
-                    # Debug: Show what we got from Gemini
-                    with st.expander("🔧 Gemini Response Debug", expanded=False):
-                        st.write("**Response object:**", str(response_with_tool_output)[:500] + "...")
-                        if hasattr(response_with_tool_output, 'candidates'):
-                            st.write("**Has candidates:**", len(response_with_tool_output.candidates) if response_with_tool_output.candidates else 0)
-                            if response_with_tool_output.candidates and len(response_with_tool_output.candidates) > 0:
-                                candidate = response_with_tool_output.candidates[0]
-                                st.write("**Candidate content:**", str(candidate.content)[:200] + "...")
-                                if hasattr(candidate.content, 'parts'):
-                                    st.write("**Parts count:**", len(candidate.content.parts) if candidate.content.parts else 0)
-                                    for i, part in enumerate(candidate.content.parts):
-                                        st.write(f"**Part {i}:**", str(part)[:200] + "...")
-                                        if hasattr(part, 'text'):
-                                            st.write(f"**Part {i} text length:**", len(part.text) if part.text else 0)
-                        
-                        # Also try the .text property
-                        if hasattr(response_with_tool_output, 'text'):
-                            st.write("**Direct .text property:**", response_with_tool_output.text[:200] + "..." if response_with_tool_output.text else "None")
+                    # Store debug info for consolidated display at bottom
+                    if 'debug_info' not in st.session_state:
+                        st.session_state.debug_info = []
+                    
+                    debug_entry = {
+                        'timestamp': time.time(),
+                        'question': st.session_state.submitted_prompt,
+                        'response_type': 'API + Analysis',
+                        'response_length': len(str(response_with_tool_output))
+                    }
+                    st.session_state.debug_info.append(debug_entry)
 
                     # Helper function for styled containers
                     def styled_container(content, gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)", extra_style=""):
@@ -1658,12 +1708,27 @@ if st.session_state.get('submitted_prompt'):
                                 # Enable follow-up mode
                                 st.session_state.follow_up_mode = True
                                 
-                                # Add follow-up prompt interface
+                                # Smart follow-up suggestions based on content
                                 st.markdown("---")
-                                st.markdown("### 💭 Ask a Follow-up Question")
+                                st.markdown("### 💭 Continue the Conversation")
+                                
+                                smart_suggestions = generate_smart_followup_suggestions(
+                                    processed_prompt, response_text, st.session_state.last_analysis_data
+                                )
+                                
+                                if smart_suggestions:
+                                    st.markdown("**💡 Suggested follow-ups:**")
+                                    cols = st.columns(len(smart_suggestions))
+                                    for i, (label, question) in enumerate(smart_suggestions):
+                                        with cols[i]:
+                                            if st.button(label, key=f"smart_followup_{i}", help=question):
+                                                st.session_state.submitted_prompt = question
+                                                st.rerun()
+                                
+                                # Custom follow-up input
                                 follow_up_question = st.text_input(
-                                    "Ask anything about this analysis or request additional insights:",
-                                    placeholder="e.g., Compare this to another player, Show trends, Explain a specific stat...",
+                                    "Or ask your own question:",
+                                    placeholder="Ask about trends, comparisons, fantasy impact, etc...",
                                     key="follow_up_input"
                                 )
                                 
@@ -1687,13 +1752,10 @@ if st.session_state.get('submitted_prompt'):
                                         st.rerun()
                             else:
                                 st.error("No text content found in the response.")
-                                st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
                         else:
                             st.error("No valid response content received from Gemini.")
-                            st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
                     except Exception as text_error:
                         st.error(f"Error accessing response text: {text_error}")
-                        st.write("Debug - Raw response:", str(response_with_tool_output)[:500] + "...")
                         
                         # Try alternative text extraction
                         try:
@@ -1811,7 +1873,6 @@ if st.session_state.get('submitted_prompt'):
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
-            st.write("Debug info:", str(e))
 
 # --- TECHNICAL DASHBOARD (Bottom of Page) ---
 
@@ -1851,6 +1912,22 @@ elif calls_remaining < 20:
     **AI Analysis**: Google Gemini 2.0 Flash  
     **Optimization**: Smart request batching and response caching
     """)
+    
+    # Debug Information Section (only if debug data exists)
+    if 'debug_info' in st.session_state and st.session_state.debug_info:
+        st.markdown("### 🐛 Debug Information")
+        if st.checkbox("Show detailed debug logs", key="show_debug"):
+            for i, debug_entry in enumerate(reversed(st.session_state.debug_info[-5:])):  # Show last 5 entries
+                with st.expander(f"Query {len(st.session_state.debug_info) - i}: {debug_entry.get('question', 'Unknown')[:50]}...", expanded=False):
+                    st.json({
+                        'Response Type': debug_entry.get('response_type', 'Unknown'),
+                        'Response Length': debug_entry.get('response_length', 0),
+                        'Timestamp': time.strftime('%H:%M:%S', time.localtime(debug_entry.get('timestamp', 0)))
+                    })
+        
+        if st.button("Clear Debug History", key="clear_debug"):
+            st.session_state.debug_info = []
+            st.rerun()
 
 # Footer
 st.markdown("""
