@@ -460,8 +460,8 @@ st.markdown("""
     /* Green Gradient Button Styling for Form Buttons and Upload Data Button */
     .stForm button[kind="primary"], .stForm button:first-child, 
     .stButton > button[key="toggle_csv"], 
-    .stButton > button:contains("Upload Data"),
-    button[data-testid="baseButton-secondary"]:contains("Upload Data") {
+    .stButton > button:contains("Upload Data (optional)"),
+    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)") {
         background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
         border: none !important;
         color: white !important;
@@ -473,22 +473,22 @@ st.markdown("""
     }
     .stForm button[kind="primary"]:hover, .stForm button:first-child:hover,
     .stButton > button[key="toggle_csv"]:hover,
-    .stButton > button:contains("Upload Data"):hover,
-    button[data-testid="baseButton-secondary"]:contains("Upload Data"):hover {
+    .stButton > button:contains("Upload Data (optional)"):hover,
+    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)"):hover {
         background: linear-gradient(135deg, #218838 0%, #1ea383 50%, #138496 100%) !important;
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4) !important;
     }
     .stForm button[kind="primary"]:active, .stForm button:first-child:active,
     .stButton > button[key="toggle_csv"]:active,
-    .stButton > button:contains("Upload Data"):active,
-    button[data-testid="baseButton-secondary"]:contains("Upload Data"):active {
+    .stButton > button:contains("Upload Data (optional)"):active,
+    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)"):active {
         transform: translateY(0px) !important;
         box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3) !important;
     }
     
     /* Additional targeting for Upload Data button */
-    div[data-testid="column"] button:contains("Upload Data") {
+    div[data-testid="column"] button:contains("Upload Data (optional)") {
         background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
         color: white !important;
         border: none !important;
@@ -562,7 +562,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     st.markdown("**📊 Data Sources** • Upload CSV files or use enhanced NFL dataset")
 with col2:
-    if st.button("📤 Upload Data", key="toggle_csv", help="Upload CSV files or load enhanced data"):
+    if st.button("📤 Upload Data (optional)", key="toggle_csv", help="Upload CSV files or load enhanced data"):
         st.session_state.show_csv_manager = not st.session_state.get('show_csv_manager', False)
 
 if st.session_state.get('show_csv_manager', False):
@@ -1440,8 +1440,6 @@ if st.session_state.get('submitted_prompt'):
                         if hasattr(response_with_tool_output, 'text'):
                             st.write("**Direct .text property:**", response_with_tool_output.text[:200] + "..." if response_with_tool_output.text else "None")
 
-                    st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
-                    
                     # Add anchor point right before the analysis report
                     st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
                     
@@ -1526,7 +1524,6 @@ if st.session_state.get('submitted_prompt'):
                     
                     # Add fantasy analysis outlook
                     if 'processed_prompt' in locals() and processed_prompt:
-                        st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
                         st.markdown('<div class="compact-section">', unsafe_allow_html=True)
                         st.markdown("### 🏆 Fantasy Football Outlook")
                         st.markdown("*Data-driven insights for your fantasy lineup decisions*")
@@ -1634,8 +1631,6 @@ if st.session_state.get('submitted_prompt'):
             st.write("Debug info:", str(e))
 
 # --- TECHNICAL DASHBOARD (Bottom of Page) ---
-st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
-st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
 
 with st.expander("⚙️ Technical Dashboard - API Rate Limiting & System Info", expanded=False):
     # API Metrics - Compact Display
