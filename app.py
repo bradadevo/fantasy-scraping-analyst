@@ -13,9 +13,43 @@ import google.generativeai as genai
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
-    genai.configure(api_key=st.secrets['GEMINI_API_KEY'])
+    # Check if GEMINI_API_KEY exists and is not a placeholder
+    gemini_key = st.secrets.get('GEMINI_API_KEY', '')
+    if not gemini_key or gemini_key == "your_gemini_api_key_here":
+        st.error("🔑 **Gemini API Key Required**")
+        st.info("""
+        **To use this app, you need a valid Google Gemini API key:**
+        
+        1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+        2. Create a new API key
+        3. Update the `.streamlit/secrets.toml` file:
+           ```
+           GEMINI_API_KEY = "your_actual_api_key_here"
+           ```
+        4. Restart the Streamlit app
+        """)
+        st.stop()
+    
+    genai.configure(api_key=gemini_key)
     BALLDONTLIE_API_KEY = st.secrets['BALLDONTLIE_API_KEY']
     NFL_API_BASE_URL = "https://api.balldontlie.io/nfl/v1"
+    
+    # Test the API key by making a simple call
+    try:
+        test_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        # This will fail quickly if the API key is invalid
+        st.session_state.gemini_api_valid = True
+    except Exception as api_test_error:
+        st.error(f"🚫 **Invalid Gemini API Key**: {str(api_test_error)}")
+        st.info("""
+        **Your API key appears to be invalid. Please:**
+        
+        1. Check that your API key is correct in `.streamlit/secrets.toml`
+        2. Ensure the API key has the necessary permissions
+        3. Try generating a new API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+        """)
+        st.stop()
+        
 except KeyError as e:
     st.error(f"Required API key not found in Streamlit secrets: {e}")
     st.info("Please add GEMINI_API_KEY and BALLDONTLIE_API_KEY to your `.streamlit/secrets.toml` file.")
@@ -27,6 +61,13 @@ if 'api_call_times' not in st.session_state:
 
 if 'api_cache' not in st.session_state:
     st.session_state.api_cache = {}
+
+# --- SESSION STATE INITIALIZATION ---
+if 'selected_prompt' not in st.session_state:
+    st.session_state.selected_prompt = ""
+
+if 'submitted_prompt' not in st.session_state:
+    st.session_state.submitted_prompt = ""
 
 if 'csv_data' not in st.session_state:
     st.session_state.csv_data = {}
@@ -415,6 +456,92 @@ st.markdown("""
     .streamlit-expanderContent {
         padding: 8px !important;
     }
+    
+    /* Green Gradient Button Styling for Form Buttons and Upload Data Button */
+    .stForm button[kind="primary"], .stForm button:first-child, 
+    .stButton > button[key="toggle_csv"], 
+    .stButton > button:contains("Upload Data"),
+    button[data-testid="baseButton-secondary"]:contains("Upload Data") {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
+        border: none !important;
+        color: white !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        border-radius: 6px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
+        box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
+    }
+    .stForm button[kind="primary"]:hover, .stForm button:first-child:hover,
+    .stButton > button[key="toggle_csv"]:hover,
+    .stButton > button:contains("Upload Data"):hover,
+    button[data-testid="baseButton-secondary"]:contains("Upload Data"):hover {
+        background: linear-gradient(135deg, #218838 0%, #1ea383 50%, #138496 100%) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4) !important;
+    }
+    .stForm button[kind="primary"]:active, .stForm button:first-child:active,
+    .stButton > button[key="toggle_csv"]:active,
+    .stButton > button:contains("Upload Data"):active,
+    button[data-testid="baseButton-secondary"]:contains("Upload Data"):active {
+        transform: translateY(0px) !important;
+        box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3) !important;
+    }
+    
+    /* Additional targeting for Upload Data button */
+    div[data-testid="column"] button:contains("Upload Data") {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
+        color: white !important;
+        border: none !important;
+    }
+    
+    /* Alternative targeting using streamlit button classes */
+    .stButton button, .stDownloadButton button {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        border-radius: 6px !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
+        box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
+    }
+    .stButton button:hover, .stDownloadButton button:hover {
+        background: linear-gradient(135deg, #218838 0%, #1ea383 50%, #138496 100%) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4) !important;
+    }
+    
+    /* Gradient Page Breaks */
+    .gradient-divider {
+        height: 4px;
+        background: linear-gradient(90deg, 
+            transparent 0%, 
+            #667eea 15%, 
+            #764ba2 30%,
+            #9575cd 50%, 
+            #764ba2 70%, 
+            #667eea 85%, 
+            transparent 100%);
+        margin: 25px 0;
+        border-radius: 2px;
+        box-shadow: 0 1px 3px rgba(102, 126, 234, 0.2);
+    }
+    
+    /* Green Gradient Divider for Data Sources */
+    .gradient-divider-green {
+        height: 4px;
+        background: linear-gradient(90deg, 
+            transparent 0%, 
+            #28a745 15%, 
+            #20c997 30%,
+            #17a2b8 50%, 
+            #20c997 70%, 
+            #28a745 85%, 
+            transparent 100%);
+        margin: 25px 0;
+        border-radius: 2px;
+        box-shadow: 0 1px 3px rgba(40, 167, 69, 0.2);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -426,13 +553,16 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Green gradient divider above Data Sources
+st.markdown('<div class="gradient-divider-green"></div>', unsafe_allow_html=True)
+
 # CSV Data Management - Compact Design
 st.markdown('<div class="compact-section">', unsafe_allow_html=True)
 col1, col2 = st.columns([2, 1])
 with col1:
     st.markdown("**📊 Data Sources** • Upload CSV files or use enhanced NFL dataset")
 with col2:
-    if st.button("⚙️ Manage Data", key="toggle_csv", help="Upload CSV files or load enhanced data"):
+    if st.button("📤 Upload Data", key="toggle_csv", help="Upload CSV files or load enhanced data"):
         st.session_state.show_csv_manager = not st.session_state.get('show_csv_manager', False)
 
 if st.session_state.get('show_csv_manager', False):
@@ -473,6 +603,9 @@ if st.session_state.get('show_csv_manager', False):
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Green gradient divider below Data Sources  
+st.markdown('<div class="gradient-divider-green"></div>', unsafe_allow_html=True)
+
 # Load preloaded CSV on app start
 if st.session_state.preloaded_csv is None:
     load_preloaded_csv()
@@ -492,9 +625,9 @@ with st.form(key="query_form", clear_on_submit=False):
             label_visibility="collapsed"
         )
     with col2:
-        submit_button = st.form_submit_button("🔍", help="Analyze", use_container_width=True)
+        submit_button = st.form_submit_button("🔍 Analyze", help="Analyze NFL data", use_container_width=True)
     with col3:
-        if st.form_submit_button("✖️", help="Clear", use_container_width=True):
+        if st.form_submit_button("✖️ Clear", help="Clear query", use_container_width=True):
             st.session_state.selected_prompt = ""
             st.session_state.submitted_prompt = ""
             st.rerun()
@@ -946,199 +1079,71 @@ def get_player_stats_only(firstName: str, lastName: str):
 
 
 # --- TOOL DECLARATION FOR GEMINI ---
-tool_declarations = [
-    {
-        "function_declarations": [
-            {
-                "name": "get_player_stats_from_api",
-                "description": "Gets comprehensive NFL player information including team affiliation, position, and optionally their statistics by their first and last name using Ball Don't Lie NFL API. This tool can answer questions about what NFL team a player plays for, their position, and their performance statistics.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {
-                            "type": "string",
-                            "description": "The first name of the NFL player."
-                        },
-                        "lastName": {
-                            "type": "string",
-                            "description": "The last name of the NFL player."
-                        },
-                        "include_stats": {
-                            "type": "boolean",
-                            "description": "Whether to include detailed statistics for the player. Default is true."
-                        }
-                    },
-                    "required": ["firstName", "lastName"]
-                }
-            },
-            {
-                "name": "get_player_stats_only",
-                "description": "Gets only the detailed statistics for a specific NFL player. Use this when you specifically need just the stats data without basic player information.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {
-                            "type": "string",
-                            "description": "The first name of the NFL player."
-                        },
-                        "lastName": {
-                            "type": "string",
-                            "description": "The last name of the NFL player."
-                        }
-                    },
-                    "required": ["firstName", "lastName"]
-                }
-            },
-            {
-                "name": "get_comprehensive_player_analysis",
-                "description": "Gets the most comprehensive analysis of an NFL player including basic stats, season stats, advanced metrics, injury status, and team information. Use this for in-depth player analysis questions.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {
-                            "type": "string",
-                            "description": "The first name of the NFL player."
-                        },
-                        "lastName": {
-                            "type": "string",
-                            "description": "The last name of the NFL player."
-                        }
-                    },
-                    "required": ["firstName", "lastName"]
-                }
-            },
-            {
-                "name": "get_enhanced_player_analysis_with_csv",
-                "description": "Gets the most comprehensive analysis of an NFL player combining live API data with CSV data (user-uploaded and pre-loaded enhanced data) for the richest possible analysis including projections, rankings, and supplementary metrics.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "firstName": {
-                            "type": "string",
-                            "description": "The first name of the NFL player."
-                        },
-                        "lastName": {
-                            "type": "string",
-                            "description": "The last name of the NFL player."
-                        }
-                    },
-                    "required": ["firstName", "lastName"]
-                }
-            },
-            {
-                "name": "get_nfl_teams",
-                "description": "Gets information about NFL teams, with optional filtering by division or conference.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "division": {
-                            "type": "string",
-                            "description": "Filter by division (e.g., 'AFC East', 'NFC West')"
-                        },
-                        "conference": {
-                            "type": "string",
-                            "description": "Filter by conference ('AFC' or 'NFC')"
-                        }
-                    },
-                    "required": []
-                }
-            },
-            {
-                "name": "get_nfl_standings",
-                "description": "Gets NFL standings for a specific season.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "season": {
-                            "type": "integer",
-                            "description": "The NFL season year (e.g., 2025, 2024, 2023)"
-                        }
-                    },
-                    "required": ["season"]
-                }
-            },
-            {
-                "name": "get_nfl_season_stats",
-                "description": "Gets comprehensive season statistics for players with filtering options.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "season": {
-                            "type": "integer",
-                            "description": "The NFL season year"
-                        },
-                        "player_ids": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of player IDs to filter by"
-                        },
-                        "team_id": {
-                            "type": "integer",
-                            "description": "Team ID to filter by"
-                        },
-                        "postseason": {
-                            "type": "boolean",
-                            "description": "Whether to include postseason stats"
-                        }
-                    },
-                    "required": ["season"]
-                }
-            },
-            {
-                "name": "get_nfl_games",
-                "description": "Gets NFL games with filtering options including specific weeks, seasons, teams. Use this for game schedules, matchups, and game-specific data.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "seasons": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of seasons to filter by"
-                        },
-                        "team_ids": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of team IDs to filter by"
-                        },
-                        "weeks": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "List of week numbers to filter by (e.g., [1, 2, 3])"
-                        },
-                        "postseason": {
-                            "type": "boolean",
-                            "description": "Whether to include postseason games"
-                        }
-                    },
-                    "required": []
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_team_statistics",
-                    "description": "Get comprehensive team statistics including season stats, standings, and team information for a specific NFL team. Use this for team performance analysis, team comparisons, or when users ask about team stats.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "team_name": {
-                                "type": "string",
-                                "description": "The name of the NFL team (e.g., 'Kansas City Chiefs', 'Buffalo Bills', 'Chiefs', 'Bills')"
-                            },
-                            "season": {
-                                "type": "integer",
-                                "description": "The NFL season year (default: 2024)",
-                                "default": 2024
-                            }
-                        },
-                        "required": ["team_name"]
-                    }
-                }
-            },
-        ]
-    }
-]
+import google.generativeai as genai
 
+# Define individual function declarations using the new format
+get_player_stats_function = genai.protos.FunctionDeclaration(
+    name="get_player_stats_from_api",
+    description="Gets comprehensive NFL player information including team affiliation, position, and optionally their statistics by their first and last name using Ball Don't Lie NFL API. This tool can answer questions about what NFL team a player plays for, their position, and their performance statistics.",
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
+            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player."),
+            "include_stats": genai.protos.Schema(type=genai.protos.Type.BOOLEAN, description="Whether to include detailed statistics for the player. Default is true.")
+        },
+        required=["firstName", "lastName"]
+    )
+)
+
+get_player_stats_only_function = genai.protos.FunctionDeclaration(
+    name="get_player_stats_only",
+    description="Gets only the detailed statistics for a specific NFL player. Use this when you specifically need just the stats data without basic player information.",
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
+            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player.")
+        },
+        required=["firstName", "lastName"]
+    )
+)
+
+get_comprehensive_player_analysis_function = genai.protos.FunctionDeclaration(
+    name="get_comprehensive_player_analysis",
+    description="Get a comprehensive analysis of an NFL player including all stats, team info, recent games, and performance metrics. This is the most complete analysis available.",
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
+            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player.")
+        },
+        required=["firstName", "lastName"]
+    )
+)
+
+get_team_statistics_function = genai.protos.FunctionDeclaration(
+    name="get_team_statistics",
+    description="Gets comprehensive team statistics including team info, season stats, and standings for an NFL team.",
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "team_name": genai.protos.Schema(type=genai.protos.Type.STRING, description="The name of the NFL team (e.g., 'Kansas City Chiefs', 'Buffalo Bills')"),
+            "season": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="The season year (e.g., 2024, 2023). Default is 2024.")
+        },
+        required=["team_name"]
+    )
+)
+
+# Create tool declaration using the new format
+tool_declarations = [genai.protos.Tool(
+    function_declarations=[
+        get_player_stats_function,
+        get_player_stats_only_function, 
+        get_comprehensive_player_analysis_function,
+        get_team_statistics_function
+    ]
+)]
 
 # Quick Search Options
 st.markdown('<div class="compact-section">', unsafe_allow_html=True)
@@ -1199,8 +1204,8 @@ with col4:
             st.session_state.submitted_prompt = prompt
             st.rerun()
 
-# Processing Section - Horizontal Line and Main Analysis
-st.markdown("---")
+# Processing Section - Gradient Divider
+st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
 
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
@@ -1438,7 +1443,7 @@ if st.session_state.get('submitted_prompt'):
                         if hasattr(response_with_tool_output, 'text'):
                             st.write("**Direct .text property:**", response_with_tool_output.text[:200] + "..." if response_with_tool_output.text else "None")
 
-                    st.markdown("---")
+                    st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
                     
                     # Add anchor point right before the analysis report
                     st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
@@ -1524,7 +1529,7 @@ if st.session_state.get('submitted_prompt'):
                     
                     # Add fantasy analysis outlook
                     if 'processed_prompt' in locals() and processed_prompt:
-                        st.markdown("---")
+                        st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
                         st.markdown('<div class="compact-section">', unsafe_allow_html=True)
                         st.markdown("### 🏆 Fantasy Football Outlook")
                         st.markdown("*Data-driven insights for your fantasy lineup decisions*")
@@ -1632,8 +1637,8 @@ if st.session_state.get('submitted_prompt'):
             st.write("Debug info:", str(e))
 
 # --- TECHNICAL DASHBOARD (Bottom of Page) ---
-st.markdown("---")
-st.markdown("---")
+st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
+st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
 
 with st.expander("⚙️ Technical Dashboard - API Rate Limiting & System Info", expanded=False):
     # API Metrics - Compact Display
