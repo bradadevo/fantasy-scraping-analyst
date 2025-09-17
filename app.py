@@ -707,11 +707,15 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
         if last_analysis_data:
             context += f"\nPREVIOUS ANALYSIS DATA:\n{str(last_analysis_data)[:1000]}...\n"
         
+        # Get enhanced context based on the follow-up question
+        enhanced_query_context = enhance_analysis_context(question)
+        
         # Create focused prompt for direct LLM response
         direct_prompt = f"""
-        You are an expert NFL analyst. The user has asked a follow-up question that can be answered using existing context and your knowledge, without needing new API data.
+        You are an expert NFL analyst providing COMPREHENSIVE and INSIGHTFUL follow-up analysis. The user has asked a follow-up question that can be answered using existing context and your knowledge, without needing new API data.
         
         {context}
+        {enhanced_query_context}
         
         USER'S FOLLOW-UP QUESTION: "{question}"
         
@@ -719,14 +723,23 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
         1. The context from previous analysis data
         2. Your knowledge of NFL players, teams, and strategies
         3. Fantasy football insights where relevant
+        4. Statistical context and comparative analysis
+        
+        ANALYSIS REQUIREMENTS:
+        📊 STATISTICAL DEPTH: Reference specific numbers from context, provide percentile rankings
+        📈 TREND ANALYSIS: Identify patterns and trajectory indicators from existing data
+        🏈 CONTEXTUAL INSIGHTS: Connect individual performance to team schemes and situations
+        🎯 ACTIONABLE ADVICE: Provide specific, actionable recommendations with rationale
+        📊 COMPARATIVE FRAMEWORK: Compare to peers, averages, and benchmarks when possible
         
         Format your response with:
         - Clear headings with emojis
         - Bullet points for key insights
         - Tables if comparing data points
         - Professional analysis tone
+        - Specific numbers and statistics from context
         
-        Focus on answering the specific question while referencing the previous analysis context.
+        Focus on answering the specific question while providing deeper insights that go beyond surface-level analysis.
         """
         
         # Initialize the model
@@ -758,6 +771,51 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
         return f"Error generating response: {str(e)}"
 
 # Generate intelligent follow-up suggestions based on analysis content
+def enhance_analysis_context(query, player_data=None, team_data=None):
+    """
+    Automatically gather additional context based on the user's query to provide richer analysis
+    """
+    context_additions = []
+    
+    # Detect query type and add relevant context
+    query_lower = query.lower()
+    
+    if any(word in query_lower for word in ['compare', 'vs', 'versus', 'better', 'worse']):
+        context_additions.append("COMPARISON_ANALYSIS")
+    
+    if any(word in query_lower for word in ['trend', 'trajectory', 'improvement', 'decline', 'season']):
+        context_additions.append("TREND_ANALYSIS")
+    
+    if any(word in query_lower for word in ['fantasy', 'start', 'sit', 'draft', 'trade', 'waiver']):
+        context_additions.append("FANTASY_FOCUS")
+    
+    if any(word in query_lower for word in ['injury', 'health', 'questionable', 'out']):
+        context_additions.append("INJURY_FOCUS")
+    
+    if any(word in query_lower for word in ['team', 'offense', 'defense', 'scheme']):
+        context_additions.append("TEAM_CONTEXT")
+    
+    # Generate enhanced context instructions
+    enhanced_context = ""
+    
+    if "COMPARISON_ANALYSIS" in context_additions:
+        enhanced_context += "\\n🔍 COMPARISON FOCUS: Provide detailed statistical comparisons, percentile rankings, and head-to-head analysis."
+    
+    if "TREND_ANALYSIS" in context_additions:
+        enhanced_context += "\\n📈 TREND FOCUS: Analyze multi-season trends, trajectory patterns, and predictive indicators."
+    
+    if "FANTASY_FOCUS" in context_additions:
+        enhanced_context += "\\n🏈 FANTASY FOCUS: Prioritize fantasy-relevant metrics, projections, and actionable recommendations."
+    
+    if "INJURY_FOCUS" in context_additions:
+        enhanced_context += "\\n🏥 INJURY FOCUS: Analyze injury impact, recovery timeline, and performance implications."
+    
+    if "TEAM_CONTEXT" in context_additions:
+        enhanced_context += "\\n🏈 TEAM FOCUS: Include team performance context, scheme fit, and organizational factors."
+    
+    return enhanced_context
+
+
 def generate_smart_followup_suggestions(question, response_text, analysis_data):
     """
     Generate contextual follow-up suggestions based on the actual analysis content
@@ -953,9 +1011,25 @@ def get_comprehensive_player_analysis(firstName: str, lastName: str):
                 if injuries.get('data'):
                     comprehensive_data["additional_data"]["injuries"] = injuries
                     
+                # Get comprehensive team context for enhanced analysis
+                if team_id:
+                    # Team season stats for context
+                    team_stats_2025 = get_nfl_season_stats(2025, team_id=team_id)
+                    if team_stats_2025.get('data'):
+                        comprehensive_data["additional_data"]["team_stats_2025"] = team_stats_2025
+                    
+                    # Previous season team stats for comparison
+                    team_stats_2024 = get_nfl_season_stats(2024, team_id=team_id)
+                    if team_stats_2024.get('data'):
+                        comprehensive_data["additional_data"]["team_stats_2024"] = team_stats_2024
+                    
+                    # Team standings for league context
+                    standings = get_nfl_standings(2025)
+                    if standings.get('data'):
+                        comprehensive_data["additional_data"]["league_standings"] = standings
+                    
             if team_id:
-                # OPTIMIZATION: Use cached team data via our rate-limited function
-                st.info("🏈 Fetching team information...")
+                # Get team details for additional context
                 try:
                     team_response = make_api_request(f"teams/{team_id}")
                     comprehensive_data["additional_data"]["team_details"] = team_response
@@ -1384,25 +1458,40 @@ if st.session_state.get('submitted_prompt'):
                     
                     # Don't clear the submitted prompt here - let user see the question being processed
                     
-                    # Smart follow-up suggestions for direct LLM responses
+                    # Enhanced Smart follow-up suggestions for direct LLM responses
                     st.markdown("---")
-                    st.markdown("### 💭 Continue the Conversation")
+                    st.markdown("### � Continue Your Analysis")
                     
                     smart_suggestions = generate_smart_followup_suggestions(
                         current_question, response_text, st.session_state.last_analysis_data
                     )
                     
                     if smart_suggestions:
-                        st.markdown("**💡 Suggested follow-ups:**")
+                        st.markdown("**� Quick Follow-ups:**")
+                        
+                        # Create a more attractive button layout
                         cols = st.columns(len(smart_suggestions))
                         for i, (label, question) in enumerate(smart_suggestions):
-                                        with cols[i]:
-                                            if st.button(label, key=f"direct_smart_followup_{i}", help=question):
-                                                st.session_state.submitted_prompt = question
-                                                # Add a visual indicator that the question is being processed
-                                                with st.spinner(f"💭 Processing: {question[:50]}..."):
-                                                    time.sleep(0.1)  # Brief delay to show spinner
-                                                st.rerun()                    # Custom follow-up input
+                            with cols[i]:
+                                # Use custom styling for better buttons
+                                button_style = """
+                                <style>
+                                div[data-testid="column"] > div > div > button {
+                                    width: 100%;
+                                    border-radius: 10px;
+                                    border: 2px solid #4CAF50;
+                                    background: linear-gradient(45deg, #4CAF50, #45a049);
+                                    color: white;
+                                    font-weight: bold;
+                                    padding: 10px;
+                                    margin: 5px 0;
+                                }
+                                </style>
+                                """
+                                if st.button(f"🎯 {label}", key=f"direct_smart_followup_{i}", help=question, use_container_width=True):
+                                    st.session_state.submitted_prompt = question
+                                    st.success(f"🔄 Processing: {question}")
+                                    st.rerun()                    # Custom follow-up input
                     follow_up_question = st.text_input(
                         "Or ask your own question:",
                         placeholder="Ask for more details, comparisons, explanations...",
@@ -1519,6 +1608,27 @@ if st.session_state.get('submitted_prompt'):
                 "- Include comparative context (league averages, rankings, etc.) when relevant\n"
                 "- When CSV data is available, create separate sections for 'Live Stats' and 'Enhanced Metrics'\n"
                 "\n"
+                "COMPREHENSIVE ANALYSIS REQUIREMENTS:\n"
+                "- Extract and analyze EVERY piece of data returned from API calls\n"
+                "- Calculate derived metrics (efficiency rates, consistency scores, trends)\n"
+                "- Provide percentile rankings within position groups\n"
+                "- Include multi-season trend analysis when data spans multiple years\n"
+                "- Cross-reference individual performance with team context\n"
+                "- Analyze situational performance (red zone, third down, etc.)\n"
+                "- Include injury impact analysis when injury data is available\n"
+                "- Compare performance against strength of schedule\n"
+                "- Provide specific fantasy football recommendations with confidence levels\n"
+                "- Calculate floor/ceiling projections based on performance variance\n"
+                "\n"
+                "REQUIRED OUTPUT SECTIONS:\n"
+                "1. Executive Summary (2-3 sentences with key findings)\n"
+                "2. Statistical Deep Dive (comprehensive tables with ALL available data)\n"
+                "3. Performance Analysis (trends, efficiency, consistency)\n"
+                "4. Contextual Factors (team impact, injuries, scheme fit)\n"
+                "5. Fantasy Football Insights (start/sit, trade value, projections)\n"
+                "6. Comparative Analysis (vs peers, league averages, historical)\n"
+                "7. Risk Assessment (injury, age, competition, variance)\n"
+                "\n"
                 "CSV DATA INTEGRATION:\n"
                 "- When using enhanced analysis, clearly distinguish between API data and CSV data\n"
                 "- Create separate tables for live stats vs projections/rankings\n"
@@ -1533,6 +1643,7 @@ if st.session_state.get('submitted_prompt'):
                 "If data is not available, clearly state that fact rather than creating fictional examples. "
                 "Create comprehensive data tables with relevant NFL statistics and sort by season (most recent first). "
                 "NOTE: This app is optimized for the 60 requests/minute rate limit with intelligent caching and request optimization. "
+                f"\n{enhance_analysis_context(st.session_state.submitted_prompt)}"
                 f"\nUser Question: {st.session_state.submitted_prompt}"
             )
 
@@ -1764,51 +1875,62 @@ if st.session_state.get('submitted_prompt'):
                                 # Enable follow-up mode
                                 st.session_state.follow_up_mode = True
                                 
-                                # Smart follow-up suggestions based on content
+                                # Enhanced Smart follow-up suggestions based on content
                                 st.markdown("---")
-                                st.markdown("### 💭 Continue the Conversation")
+                                st.markdown("### � Continue Your Analysis")
                                 
                                 smart_suggestions = generate_smart_followup_suggestions(
                                     processed_prompt, response_text, st.session_state.last_analysis_data
                                 )
                                 
                                 if smart_suggestions:
-                                    st.markdown("**💡 Suggested follow-ups:**")
+                                    st.markdown("**� Instant Follow-ups:**")
                                     cols = st.columns(len(smart_suggestions))
                                     for i, (label, question) in enumerate(smart_suggestions):
                                         with cols[i]:
-                                            if st.button(label, key=f"smart_followup_{i}", help=question):
+                                            if st.button(f"🎯 {label}", key=f"smart_followup_{i}", help=question, use_container_width=True):
                                                 st.session_state.submitted_prompt = question
-                                                # Add a visual indicator that the question is being processed
-                                                with st.spinner(f"🔍 Processing: {question[:50]}..."):
-                                                    time.sleep(0.1)  # Brief delay to show spinner
+                                                st.success(f"� Analyzing: {question}")
                                                 st.rerun()
                                 
-                                # Custom follow-up input
-                                follow_up_question = st.text_input(
-                                    "Or ask your own question:",
-                                    placeholder="Ask about trends, comparisons, fantasy impact, etc...",
-                                    key="follow_up_input"
+                                # Enhanced custom follow-up input
+                                st.markdown("**💭 Or ask something specific:**")
+                                
+                                # Create a more prominent input area
+                                follow_up_question = st.text_area(
+                                    "Your custom follow-up question:",
+                                    placeholder="Ask about trends, comparisons, fantasy impact, trade value, injury concerns, etc...",
+                                    key="follow_up_input",
+                                    height=80
                                 )
                                 
-                                col1, col2 = st.columns([3, 1])
+                                col1, col2, col3 = st.columns([2, 2, 1])
                                 with col1:
-                                    if st.button("🔍 Ask Follow-up", key="follow_up_submit", type="primary"):
+                                    if st.button("� Analyze This", key="follow_up_submit", type="primary", use_container_width=True):
                                         if follow_up_question:
                                             st.session_state.submitted_prompt = follow_up_question
+                                            st.success(f"🔄 Analyzing: {follow_up_question[:50]}...")
                                             st.rerun()
                                         else:
                                             st.warning("Please enter a follow-up question first.")
                                 
                                 with col2:
-                                    if st.button("🔄 New Analysis", key="new_analysis"):
+                                    if st.button("🔄 Fresh Start", key="new_analysis", use_container_width=True):
                                         # Clear conversation history and start fresh
                                         st.session_state.conversation_history = []
                                         st.session_state.last_analysis_data = None
                                         st.session_state.follow_up_mode = False
                                         st.session_state.submitted_prompt = ""
                                         st.session_state.selected_prompt = ""
+                                        st.success("🆕 Ready for a new analysis!")
                                         st.rerun()
+                                        
+                                with col3:
+                                    if st.button("📊 History", key="show_history", use_container_width=True):
+                                        if st.session_state.conversation_history:
+                                            st.info(f"💬 {len(st.session_state.conversation_history)} questions in this session")
+                                        else:
+                                            st.info("No conversation history yet")
                             else:
                                 st.error("No text content found in the response.")
                         else:
