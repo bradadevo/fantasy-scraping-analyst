@@ -814,7 +814,15 @@ def get_nfl_teams(division=None, conference=None):
 def get_nfl_games(seasons=None, team_ids=None, weeks=None, postseason=None, per_page=25):
     """Get NFL games with filtering options"""
     params = {"per_page": per_page}
-    if seasons: params["seasons[]"] = seasons if isinstance(seasons, list) else [seasons]
+    if seasons: 
+        # Convert seasons to integers with robust error handling
+        try:
+            if isinstance(seasons, list):
+                params["seasons[]"] = [int(float(s)) for s in seasons]
+            else:
+                params["seasons[]"] = [int(float(seasons))]
+        except (ValueError, TypeError):
+            params["seasons[]"] = [2025]  # Default to current season
     if team_ids: params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
     if weeks: params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
     if postseason is not None: params["postseason"] = postseason
@@ -823,11 +831,21 @@ def get_nfl_games(seasons=None, team_ids=None, weeks=None, postseason=None, per_
 @api_error_handler("standings")
 def get_nfl_standings(season):
     """Get NFL standings for a specific season"""
+    try:
+        season = int(float(season))  # Handle both int and float inputs safely
+    except (ValueError, TypeError):
+        season = 2025  # Default to current season if conversion fails
+    
     return make_api_request("standings", {"season": season})
 
 @api_error_handler("season stats")
 def get_nfl_season_stats(season, player_ids=None, team_id=None, postseason=None, sort_by=None):
     """Get NFL season stats with comprehensive filtering"""
+    try:
+        season = int(float(season))  # Handle both int and float inputs safely
+    except (ValueError, TypeError):
+        season = 2025  # Default to current season if conversion fails
+    
     params = {"season": season}
     if player_ids: params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
     if team_id: params["team_id"] = team_id
@@ -844,7 +862,7 @@ def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
     return make_api_request("player_injuries", params)
 
 @api_error_handler("team statistics")
-def get_team_statistics(team_name, season=2024):
+def get_team_statistics(team_name, season=2025):
     """
     Get comprehensive team statistics for a specific team and season
     This is a dedicated function for team analysis
@@ -873,11 +891,11 @@ def get_team_statistics(team_name, season=2024):
         return json.dumps({"error": f"Team '{team_name}' not found"})
     
     # Get team statistics using season stats with team filter
-    season_stats = get_nfl_season_stats(season=season, team_id=team_id)
+    season_stats = get_nfl_season_stats(season=int(season), team_id=team_id)
     stats_data = json.loads(season_stats) if isinstance(season_stats, str) else season_stats
     
     # Get team standings for additional context
-    standings_data = get_nfl_standings(season=season)
+    standings_data = get_nfl_standings(season=int(season))
     standings = json.loads(standings_data) if isinstance(standings_data, str) else standings_data
     
     # Combine all team data
@@ -1043,10 +1061,10 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
                 for player in found_players:
                     player_id = player.get('id')
                     if player_id:
-                        # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
+                        # OPTIMIZATION: Try 2025 first, then 2024 as fallback for comprehensive data
                         stats_attempts = [
-                            {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
-                            {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season 
+                            {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season first (current/most recent)
+                            {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season as fallback
                         ]
                         
                         all_stats = []
@@ -1130,10 +1148,10 @@ def get_player_stats_only(firstName: str, lastName: str):
             if not player_id:
                 return json.dumps({"error": "Player ID not found"})
             
-            # OPTIMIZATION: Reduce stats attempts to 2 most recent seasons only
+            # OPTIMIZATION: Try 2025 first, then 2024 as fallback for comprehensive data
             stats_attempts = [
-                {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season specifically (current)
-                {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season
+                {"player_ids[]": player_id, "seasons[]": "2025"},  # Try 2025 season first (current/most recent)
+                {"player_ids[]": player_id, "seasons[]": "2024"},  # Try 2024 season as fallback
             ]
             
             all_stats = []
@@ -1238,7 +1256,7 @@ get_team_statistics_function = genai.protos.FunctionDeclaration(
         type=genai.protos.Type.OBJECT,
         properties={
             "team_name": genai.protos.Schema(type=genai.protos.Type.STRING, description="The name of the NFL team (e.g., 'Kansas City Chiefs', 'Buffalo Bills')"),
-            "season": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="The season year (e.g., 2024, 2023). Default is 2024.")
+            "season": genai.protos.Schema(type=genai.protos.Type.INTEGER, description="The season year (e.g., 2025, 2024, 2023). Default is 2025.")
         },
         required=["team_name"]
     )
@@ -1364,8 +1382,7 @@ if st.session_state.get('submitted_prompt'):
                     current_answer = response_text
                     st.session_state.conversation_history.append((current_question, current_answer))
                     
-                    # Clear the submitted prompt
-                    st.session_state.submitted_prompt = ""
+                    # Don't clear the submitted prompt here - let user see the question being processed
                     
                     # Smart follow-up suggestions for direct LLM responses
                     st.markdown("---")
@@ -1379,12 +1396,13 @@ if st.session_state.get('submitted_prompt'):
                         st.markdown("**💡 Suggested follow-ups:**")
                         cols = st.columns(len(smart_suggestions))
                         for i, (label, question) in enumerate(smart_suggestions):
-                            with cols[i]:
-                                if st.button(label, key=f"direct_smart_followup_{i}", help=question):
-                                    st.session_state.submitted_prompt = question
-                                    st.rerun()
-                    
-                    # Custom follow-up input
+                                        with cols[i]:
+                                            if st.button(label, key=f"direct_smart_followup_{i}", help=question):
+                                                st.session_state.submitted_prompt = question
+                                                # Add a visual indicator that the question is being processed
+                                                with st.spinner(f"💭 Processing: {question[:50]}..."):
+                                                    time.sleep(0.1)  # Brief delay to show spinner
+                                                st.rerun()                    # Custom follow-up input
                     follow_up_question = st.text_input(
                         "Or ask your own question:",
                         placeholder="Ask for more details, comparisons, explanations...",
@@ -1471,8 +1489,8 @@ if st.session_state.get('submitted_prompt'):
                 "4. Use the actual team data returned from the API calls to create your analysis\n"
                 "\n"
                 "EXAMPLE: For 'compare Buffalo Bills and Kansas City Chiefs':\n"
-                "- Call get_team_statistics(team_name='Buffalo Bills', season=2024)\n"
-                "- Call get_team_statistics(team_name='Kansas City Chiefs', season=2024)\n"
+                "- Call get_team_statistics(team_name='Buffalo Bills', season=2025)\n"
+                "- Call get_team_statistics(team_name='Kansas City Chiefs', season=2025)\n"
                 "- Compare the comprehensive data returned\n"
                 "\n"
                 "CSV DATA CAPABILITIES:\n"
@@ -1509,8 +1527,10 @@ if st.session_state.get('submitted_prompt'):
                 "\n"
                 f"CSV DATA STATUS: {len(st.session_state.csv_data)} user files uploaded, {'Enhanced data loaded' if st.session_state.preloaded_csv is not None else 'No enhanced data'}\n"
                 "\n"
-                "The Ball Don't Lie NFL API contains comprehensive data prioritizing 2025 (current season), 2024, and 2023 seasons. "
-                "Always mention which seasons the statistics are from. If recent data (2025/2024/2023) is available, highlight that. "
+                "The Ball Don't Lie NFL API contains comprehensive data with 2025 as the current/most recent season, followed by 2024 and 2023 seasons. "
+                "Always prioritize and mention 2025 data first unless the user specifically requests a different year. Always mention which seasons the statistics are from. If recent data (2025 preferred, then 2024/2023) is available, highlight that. "
+                "IMPORTANT: Only provide real data from the API or projections from uploaded CSV files. Never generate hypothetical, example, or simulated data. "
+                "If data is not available, clearly state that fact rather than creating fictional examples. "
                 "Create comprehensive data tables with relevant NFL statistics and sort by season (most recent first). "
                 "NOTE: This app is optimized for the 60 requests/minute rate limit with intelligent caching and request optimization. "
                 f"\nUser Question: {st.session_state.submitted_prompt}"
@@ -1518,6 +1538,21 @@ if st.session_state.get('submitted_prompt'):
 
             # Use the stable google-generativeai syntax
             model = genai.GenerativeModel('gemini-2.0-flash-exp', tools=tool_declarations)
+            
+            # Display what question is being processed
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+                padding: 15px 25px;
+                border-radius: 12px;
+                margin: 20px 0;
+                color: white;
+                text-align: center;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            ">
+                <strong>🔍 Analyzing:</strong> {st.session_state.submitted_prompt}
+            </div>
+            """, unsafe_allow_html=True)
             
             # Configure generation to use ANY function calling mode for better reliability
             generation_config = genai.types.GenerationConfig(
@@ -1571,13 +1606,19 @@ if st.session_state.get('submitted_prompt'):
                             )
                             tool_output = json.dumps(teams_data)
                         elif function_call.name == "get_nfl_standings":
-                            standings_data = get_nfl_standings(
-                                season=function_call.args['season']
-                            )
+                            try:
+                                season = int(float(function_call.args['season']))
+                            except (ValueError, TypeError):
+                                season = 2025
+                            standings_data = get_nfl_standings(season=season)
                             tool_output = json.dumps(standings_data)
                         elif function_call.name == "get_nfl_season_stats":
+                            try:
+                                season = int(float(function_call.args['season']))
+                            except (ValueError, TypeError):
+                                season = 2025
                             season_stats_data = get_nfl_season_stats(
-                                season=function_call.args['season'],
+                                season=season,
                                 player_ids=function_call.args.get('player_ids'),
                                 team_id=function_call.args.get('team_id'),
                                 postseason=function_call.args.get('postseason')
@@ -1585,17 +1626,32 @@ if st.session_state.get('submitted_prompt'):
                             tool_output = json.dumps(season_stats_data)
 
                         elif function_call.name == "get_nfl_games":
+                            # Convert seasons to integers if provided with robust error handling
+                            seasons_arg = function_call.args.get('seasons')
+                            if seasons_arg is not None:
+                                try:
+                                    if isinstance(seasons_arg, list):
+                                        seasons_arg = [int(float(s)) for s in seasons_arg]
+                                    else:
+                                        seasons_arg = int(float(seasons_arg))
+                                except (ValueError, TypeError):
+                                    seasons_arg = 2025  # Default to current season
+                            
                             games_data = get_nfl_games(
-                                seasons=function_call.args.get('seasons'),
+                                seasons=seasons_arg,
                                 team_ids=function_call.args.get('team_ids'),
                                 weeks=function_call.args.get('weeks'),
                                 postseason=function_call.args.get('postseason')
                             )
                             tool_output = json.dumps(games_data)
                         elif function_call.name == "get_team_statistics":
+                            try:
+                                season = int(float(function_call.args.get('season', 2025)))
+                            except (ValueError, TypeError):
+                                season = 2025
                             team_stats = get_team_statistics(
                                 team_name=function_call.args.get('team_name'),
-                                season=function_call.args.get('season', 2024)
+                                season=season
                             )
                             tool_output = team_stats
                         else:
@@ -1723,6 +1779,9 @@ if st.session_state.get('submitted_prompt'):
                                         with cols[i]:
                                             if st.button(label, key=f"smart_followup_{i}", help=question):
                                                 st.session_state.submitted_prompt = question
+                                                # Add a visual indicator that the question is being processed
+                                                with st.spinner(f"🔍 Processing: {question[:50]}..."):
+                                                    time.sleep(0.1)  # Brief delay to show spinner
                                                 st.rerun()
                                 
                                 # Custom follow-up input
@@ -1865,6 +1924,10 @@ if st.session_state.get('submitted_prompt'):
                             ⚡ <strong>Optimized:</strong> Smart caching & rate limiting
                         </div>
                         """, unsafe_allow_html=True)
+                        
+                        # Clear submitted prompt after successful display
+                        if st.session_state.submitted_prompt:
+                            st.session_state.submitted_prompt = ""
                 else:
                     st.error("Gemini could not fulfill the request using its tools. Here is its direct response:")
                     st.markdown(response.text)
