@@ -1061,30 +1061,6 @@ tool_declarations = [
 ]
 
 
-# Create a form to handle submission properly
-with st.form(key="query_form", clear_on_submit=False):
-    user_prompt = st.text_input(
-        "Ask about any NFL player, team, or stat",
-        placeholder="e.g., What were the stats for Patrick Mahomes last season?",
-        value=st.session_state.selected_prompt,
-        help="Ask about any NFL player stats, team performance, weekly data, or league standings"
-    )
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        submit_button = st.form_submit_button("� Analyze", use_container_width=True, type="primary")
-    with col2:
-        if st.form_submit_button("🗑️ Clear", use_container_width=True):
-            st.session_state.selected_prompt = ""
-            st.session_state.submitted_prompt = ""
-            st.rerun()
-
-# Process form submission
-if submit_button and user_prompt.strip():
-    st.session_state.submitted_prompt = user_prompt.strip()
-elif submit_button and not user_prompt.strip():
-    st.warning("⚠️ Please enter a question before clicking Analyze!")
-
 # --- RECOMMENDATION BUTTONS ---
 st.markdown("""
 <div style="
@@ -1249,7 +1225,7 @@ if st.session_state.get('submitted_prompt'):
             )
 
             # Use the stable google-generativeai syntax
-            model = genai.GenerativeModel('gemini-1.5-flash', tools=tool_declarations)
+            model = genai.GenerativeModel('gemini-2.0-flash-exp', tools=tool_declarations)
             
             # Configure generation to use ANY function calling mode for better reliability
             generation_config = genai.types.GenerationConfig(
@@ -1661,7 +1637,7 @@ with st.expander("⚙️ Technical Dashboard - API Rate Limiting & System Info",
     **Rate Limiting**: 60 requests per minute with intelligent caching  
     **Cache Duration**: 5 minutes per response  
     **API Source**: Ball Don't Lie NFL API  
-    **AI Analysis**: Google Gemini 1.5 Flash  
+    **AI Analysis**: Google Gemini 2.0 Flash  
     **Optimization**: Smart request batching and response caching
     """)
 
