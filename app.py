@@ -5,6 +5,7 @@ import time
 import pandas as pd
 import io
 import os
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -74,6 +75,16 @@ if 'csv_data' not in st.session_state:
 
 if 'preloaded_csv' not in st.session_state:
     st.session_state.preloaded_csv = None
+
+# New conversation management state
+if 'conversation_history' not in st.session_state:
+    st.session_state.conversation_history = []
+if 'last_analysis_data' not in st.session_state:
+    st.session_state.last_analysis_data = None
+if 'conversation_context' not in st.session_state:
+    st.session_state.conversation_context = ""
+if 'follow_up_mode' not in st.session_state:
+    st.session_state.follow_up_mode = False
 
 def rate_limit_decorator(func):
     """Decorator to enforce rate limiting of 60 requests per minute"""
@@ -457,24 +468,24 @@ st.markdown("""
         padding: 8px !important;
     }
     
-    /* Green Gradient Button Styling for Form Buttons and Upload Data Button */
+    /* Green Gradient Button Styling - Consolidated */
     .stForm button[kind="primary"], .stForm button:first-child, 
     .stButton > button[key="toggle_csv"], 
     .stButton > button:contains("Upload Data (optional)"),
-    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)") {
+    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)"),
+    .stButton button, .stDownloadButton button,
+    div[data-testid="column"] button:contains("Upload Data (optional)") {
         background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
-        border: none !important;
-        color: white !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-        border-radius: 6px !important;
+        border: none !important; color: white !important; font-weight: 600 !important;
+        transition: all 0.3s ease !important; border-radius: 6px !important;
         text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
         box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
     }
     .stForm button[kind="primary"]:hover, .stForm button:first-child:hover,
     .stButton > button[key="toggle_csv"]:hover,
     .stButton > button:contains("Upload Data (optional)"):hover,
-    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)"):hover {
+    button[data-testid="baseButton-secondary"]:contains("Upload Data (optional)"):hover,
+    .stButton button:hover, .stDownloadButton button:hover {
         background: linear-gradient(135deg, #218838 0%, #1ea383 50%, #138496 100%) !important;
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4) !important;
@@ -487,59 +498,16 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3) !important;
     }
     
-    /* Additional targeting for Upload Data button */
-    div[data-testid="column"] button:contains("Upload Data (optional)") {
-        background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
-        color: white !important;
-        border: none !important;
+    /* Gradient Dividers - Base styles */
+    .gradient-divider, .gradient-divider-green {
+        height: 4px; margin: 25px 0; border-radius: 2px;
     }
-    
-    /* Alternative targeting using streamlit button classes */
-    .stButton button, .stDownloadButton button {
-        background: linear-gradient(135deg, #28a745 0%, #20c997 50%, #17a2b8 100%) !important;
-        color: white !important;
-        border: none !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-        border-radius: 6px !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
-        box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
-    }
-    .stButton button:hover, .stDownloadButton button:hover {
-        background: linear-gradient(135deg, #218838 0%, #1ea383 50%, #138496 100%) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4) !important;
-    }
-    
-    /* Gradient Page Breaks */
     .gradient-divider {
-        height: 4px;
-        background: linear-gradient(90deg, 
-            transparent 0%, 
-            #667eea 15%, 
-            #764ba2 30%,
-            #9575cd 50%, 
-            #764ba2 70%, 
-            #667eea 85%, 
-            transparent 100%);
-        margin: 25px 0;
-        border-radius: 2px;
+        background: linear-gradient(90deg, transparent 0%, #667eea 15%, #764ba2 30%, #9575cd 50%, #764ba2 70%, #667eea 85%, transparent 100%);
         box-shadow: 0 1px 3px rgba(102, 126, 234, 0.2);
     }
-    
-    /* Green Gradient Divider for Data Sources */
     .gradient-divider-green {
-        height: 4px;
-        background: linear-gradient(90deg, 
-            transparent 0%, 
-            #28a745 15%, 
-            #20c997 30%,
-            #17a2b8 50%, 
-            #20c997 70%, 
-            #28a745 85%, 
-            transparent 100%);
-        margin: 25px 0;
-        border-radius: 2px;
+        background: linear-gradient(90deg, transparent 0%, #28a745 15%, #20c997 30%, #17a2b8 50%, #20c997 70%, #28a745 85%, transparent 100%);
         box-shadow: 0 1px 3px rgba(40, 167, 69, 0.2);
     }
 </style>
@@ -612,15 +580,22 @@ if st.session_state.preloaded_csv is None:
 
 # Search Interface - Compact Design  
 st.markdown('<div class="compact-section">', unsafe_allow_html=True)
-st.markdown("**🔍 NFL Analysis** • Ask about any player, team, or stat")
+if st.session_state.follow_up_mode:
+    st.markdown("**🔍 NFL Analysis** • Ask about any player, team, or stat | 💬 *Follow-up mode: Previous analysis available*")
+else:
+    st.markdown("**🔍 NFL Analysis** • Ask about any player, team, or stat")
 
 # Create a form to handle submission properly
 with st.form(key="query_form", clear_on_submit=False):
     col1, col2, col3 = st.columns([6, 1, 1])
     with col1:
+        placeholder_text = "e.g., Patrick Mahomes stats, Chiefs vs Bills comparison"
+        if st.session_state.follow_up_mode:
+            placeholder_text = "e.g., Compare this to another player, Show trends, Explain the defensive stats..."
+        
         user_prompt = st.text_input(
             "Query",
-            placeholder="e.g., Patrick Mahomes stats, Chiefs vs Bills comparison",
+            placeholder=placeholder_text,
             value=st.session_state.selected_prompt,
             label_visibility="collapsed"
         )
@@ -640,132 +615,236 @@ elif submit_button and not user_prompt.strip():
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Helper decorator for API error handling
+def api_error_handler(func_name):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                st.error(f"Error fetching {func_name}: {e}")
+                return {"error": str(e)}
+        return wrapper
+    return decorator
+
+# Question classification for intelligent routing
+def classify_followup_question(question, conversation_history, last_analysis_data):
+    """
+    Classify whether a follow-up question needs new API data or can be answered 
+    with existing data + LLM knowledge
+    """
+    question_lower = question.lower()
+    
+    # Keywords that typically require new API data
+    api_keywords = [
+        # New player/team names that weren't in previous analysis
+        'compare', 'vs', 'versus',  # if comparing to NEW entities
+        'latest', 'recent', 'current', 'today', 'this week',
+        'injury report', 'roster', 'depth chart',
+        'schedule', 'upcoming games', 'next game',
+        'standings', 'rankings', 'league leaders'
+    ]
+    
+    # Keywords that can be answered with existing data + LLM
+    llm_keywords = [
+        'explain', 'why', 'how', 'what does', 'meaning', 'analysis',
+        'opinion', 'think', 'better', 'worse', 'recommend',
+        'fantasy', 'draft', 'start', 'sit', 'bench',
+        'strength', 'weakness', 'trend', 'pattern',
+        'breakdown', 'details', 'insights', 'takeaway'
+    ]
+    
+    # Check if question mentions new player/team names not in previous data
+    if last_analysis_data:
+        # Extract names from previous data (simple heuristic)
+        prev_data_str = str(last_analysis_data).lower()
+        
+        # Common NFL player/team patterns that might indicate new entities
+        new_entity_patterns = [
+            r'\b[A-Z][a-z]+ [A-Z][a-z]+\b',  # First Last (player names)
+            r'\b(chiefs|bills|patriots|dolphins|jets|ravens|bengals|browns|steelers|titans|colts|jaguars|texans|broncos|chargers|raiders|49ers|seahawks|rams|cardinals|cowboys|giants|eagles|commanders|packers|bears|lions|vikings|falcons|panthers|saints|buccaneers)\b'
+        ]
+        
+        # If question contains names/teams not in previous analysis, might need API
+        question_entities = set(re.findall(r'\b[A-Z][a-z]+\b', question))
+        prev_entities = set(re.findall(r'\b[A-Z][a-z]+\b', prev_data_str))
+        
+        if question_entities - prev_entities:
+            # New entities detected, check if it's a comparison
+            if any(keyword in question_lower for keyword in ['compare', 'vs', 'versus']):
+                return "api_needed"
+    
+    # Check for explicit API-requiring keywords
+    if any(keyword in question_lower for keyword in api_keywords):
+        return "api_needed"
+    
+    # Check for LLM-answerable keywords
+    if any(keyword in question_lower for keyword in llm_keywords):
+        return "llm_direct"
+    
+    # Default: if we have previous analysis data, try LLM first
+    if last_analysis_data:
+        return "llm_direct"
+    else:
+        return "api_needed"
+
+# Direct LLM response for follow-up questions
+def generate_direct_llm_response(question, conversation_history, last_analysis_data):
+    """
+    Generate a response using Gemini LLM directly with existing data context
+    """
+    try:
+        # Build context from conversation history
+        context = ""
+        if conversation_history:
+            context += "\nCONVERSATION HISTORY:\n"
+            for i, (prev_q, prev_a) in enumerate(conversation_history[-2:], 1):
+                context += f"Q{i}: {prev_q}\n"
+                context += f"A{i}: {prev_a[:500]}...\n\n"
+        
+        # Include previous analysis data
+        if last_analysis_data:
+            context += f"\nPREVIOUS ANALYSIS DATA:\n{str(last_analysis_data)[:1000]}...\n"
+        
+        # Create focused prompt for direct LLM response
+        direct_prompt = f"""
+        You are an expert NFL analyst. The user has asked a follow-up question that can be answered using existing context and your knowledge, without needing new API data.
+        
+        {context}
+        
+        USER'S FOLLOW-UP QUESTION: "{question}"
+        
+        Please provide a comprehensive answer using:
+        1. The context from previous analysis data
+        2. Your knowledge of NFL players, teams, and strategies
+        3. Fantasy football insights where relevant
+        
+        Format your response with:
+        - Clear headings with emojis
+        - Bullet points for key insights
+        - Tables if comparing data points
+        - Professional analysis tone
+        
+        Focus on answering the specific question while referencing the previous analysis context.
+        """
+        
+        # Initialize the model
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7,
+            top_p=0.8,
+            top_k=40,
+            max_output_tokens=2048,
+        )
+        
+        # Generate response
+        response = model.generate_content(
+            direct_prompt,
+            generation_config=generation_config
+        )
+        
+        # Extract text from response
+        if response.candidates and response.candidates[0].content.parts:
+            response_text = ""
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text:
+                    response_text += part.text
+            return response_text
+        else:
+            return "I couldn't generate a response. Please try rephrasing your question."
+            
+    except Exception as e:
+        return f"Error generating response: {str(e)}"
+
 # --- Function Definitions ---
+@api_error_handler("teams")
 def get_nfl_teams(division=None, conference=None):
     """Get NFL teams with optional filtering by division or conference"""
-    try:
-        params = {}
-        if division:
-            params["division"] = division
-        if conference:
-            params["conference"] = conference
-            
-        return make_api_request("teams", params)
-    except Exception as e:
-        st.error(f"Error fetching teams: {e}")
-        return {"error": str(e)}
+    params = {}
+    if division: params["division"] = division
+    if conference: params["conference"] = conference
+    return make_api_request("teams", params)
 
+@api_error_handler("games")
 def get_nfl_games(seasons=None, team_ids=None, weeks=None, postseason=None, per_page=25):
     """Get NFL games with filtering options"""
-    try:
-        params = {"per_page": per_page}
-        if seasons:
-            params["seasons[]"] = seasons if isinstance(seasons, list) else [seasons]
-        if team_ids:
-            params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
-        if weeks:
-            params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
-        if postseason is not None:
-            params["postseason"] = postseason
-            
-        return make_api_request("games", params)
-    except Exception as e:
-        st.error(f"Error fetching games: {e}")
-        return {"error": str(e)}
+    params = {"per_page": per_page}
+    if seasons: params["seasons[]"] = seasons if isinstance(seasons, list) else [seasons]
+    if team_ids: params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
+    if weeks: params["weeks[]"] = weeks if isinstance(weeks, list) else [weeks]
+    if postseason is not None: params["postseason"] = postseason
+    return make_api_request("games", params)
 
+@api_error_handler("standings")
 def get_nfl_standings(season):
     """Get NFL standings for a specific season"""
-    try:
-        params = {"season": season}
-        return make_api_request("standings", params)
-    except Exception as e:
-        st.error(f"Error fetching standings: {e}")
-        return {"error": str(e)}
+    return make_api_request("standings", {"season": season})
 
+@api_error_handler("season stats")
 def get_nfl_season_stats(season, player_ids=None, team_id=None, postseason=None, sort_by=None):
     """Get NFL season stats with comprehensive filtering"""
-    try:
-        params = {"season": season}
-        if player_ids:
-            params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
-        if team_id:
-            params["team_id"] = team_id
-        if postseason is not None:
-            params["postseason"] = postseason
-        if sort_by:
-            params["sort_by"] = sort_by
-            
-        return make_api_request("season_stats", params)
-    except Exception as e:
-        st.error(f"Error fetching season stats: {e}")
-        return {"error": str(e)}
+    params = {"season": season}
+    if player_ids: params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
+    if team_id: params["team_id"] = team_id
+    if postseason is not None: params["postseason"] = postseason
+    if sort_by: params["sort_by"] = sort_by
+    return make_api_request("season_stats", params)
 
-
-
+@api_error_handler("player injuries")
 def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
     """Get NFL player injury information"""
-    try:
-        params = {"per_page": per_page}
-        if team_ids:
-            params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
-        if player_ids:
-            params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
-            
-        return make_api_request("player_injuries", params)
-    except Exception as e:
-        st.error(f"Error fetching player injuries: {e}")
-        return {"error": str(e)}
+    params = {"per_page": per_page}
+    if team_ids: params["team_ids[]"] = team_ids if isinstance(team_ids, list) else [team_ids]
+    if player_ids: params["player_ids[]"] = player_ids if isinstance(player_ids, list) else [player_ids]
+    return make_api_request("player_injuries", params)
 
+@api_error_handler("team statistics")
 def get_team_statistics(team_name, season=2024):
     """
     Get comprehensive team statistics for a specific team and season
     This is a dedicated function for team analysis
     """
-    try:
-        # First get team info to find the team ID
-        teams_data = get_nfl_teams()
-        teams = json.loads(teams_data) if isinstance(teams_data, str) else teams_data
+    # First get team info to find the team ID
+    teams_data = get_nfl_teams()
+    teams = json.loads(teams_data) if isinstance(teams_data, str) else teams_data
+    
+    if isinstance(teams, dict) and teams.get('error'):
+        return teams_data
         
-        if isinstance(teams, dict) and teams.get('error'):
-            return teams_data
-            
-        # Find the team by name (case insensitive)
-        team_id = None
-        team_info = None
-        team_name_lower = team_name.lower()
-        
-        for team in teams.get('data', []):
-            if (team_name_lower in team.get('full_name', '').lower() or 
-                team_name_lower in team.get('name', '').lower() or
-                team_name_lower in team.get('city', '').lower()):
-                team_id = team.get('id')
-                team_info = team
-                break
-        
-        if not team_id:
-            return json.dumps({"error": f"Team '{team_name}' not found"})
-        
-        # Get team statistics using season stats with team filter
-        season_stats = get_nfl_season_stats(season=season, team_id=team_id)
-        stats_data = json.loads(season_stats) if isinstance(season_stats, str) else season_stats
-        
-        # Get team standings for additional context
-        standings_data = get_nfl_standings(season=season)
-        standings = json.loads(standings_data) if isinstance(standings_data, str) else standings_data
-        
-        # Combine all team data
-        result = {
-            "team_info": team_info,
-            "season_stats": stats_data,
-            "standings": standings,
-            "season": season
-        }
-        
-        return json.dumps(result)
-        
-    except Exception as e:
-        st.error(f"Error fetching team statistics: {e}")
-        return json.dumps({"error": str(e)})
+    # Find the team by name (case insensitive)
+    team_id = None
+    team_info = None
+    team_name_lower = team_name.lower()
+    
+    for team in teams.get('data', []):
+        if (team_name_lower in team.get('full_name', '').lower() or 
+            team_name_lower in team.get('name', '').lower() or
+            team_name_lower in team.get('city', '').lower()):
+            team_id = team.get('id')
+            team_info = team
+            break
+    
+    if not team_id:
+        return json.dumps({"error": f"Team '{team_name}' not found"})
+    
+    # Get team statistics using season stats with team filter
+    season_stats = get_nfl_season_stats(season=season, team_id=team_id)
+    stats_data = json.loads(season_stats) if isinstance(season_stats, str) else season_stats
+    
+    # Get team standings for additional context
+    standings_data = get_nfl_standings(season=season)
+    standings = json.loads(standings_data) if isinstance(standings_data, str) else standings_data
+    
+    # Combine all team data
+    result = {
+        "team_info": team_info,
+        "season_stats": stats_data,
+        "standings": standings,
+        "season": season
+    }
+    
+    return json.dumps(result)
 
 
 def get_comprehensive_player_analysis(firstName: str, lastName: str):
@@ -1081,45 +1160,33 @@ def get_player_stats_only(firstName: str, lastName: str):
 # --- TOOL DECLARATION FOR GEMINI ---
 import google.generativeai as genai
 
-# Define individual function declarations using the new format
-get_player_stats_function = genai.protos.FunctionDeclaration(
-    name="get_player_stats_from_api",
-    description="Gets comprehensive NFL player information including team affiliation, position, and optionally their statistics by their first and last name using Ball Don't Lie NFL API. This tool can answer questions about what NFL team a player plays for, their position, and their performance statistics.",
-    parameters=genai.protos.Schema(
-        type=genai.protos.Type.OBJECT,
-        properties={
-            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
-            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player."),
-            "include_stats": genai.protos.Schema(type=genai.protos.Type.BOOLEAN, description="Whether to include detailed statistics for the player. Default is true.")
-        },
-        required=["firstName", "lastName"]
+# Helper function to create player function declarations
+def create_player_function(name, description, extra_params=None):
+    props = {
+        "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
+        "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player.")
+    }
+    if extra_params: props.update(extra_params)
+    return genai.protos.FunctionDeclaration(
+        name=name, description=description,
+        parameters=genai.protos.Schema(type=genai.protos.Type.OBJECT, properties=props, required=["firstName", "lastName"])
     )
+
+# Define function declarations using helper
+get_player_stats_function = create_player_function(
+    "get_player_stats_from_api",
+    "Gets comprehensive NFL player information including team affiliation, position, and optionally their statistics by their first and last name using Ball Don't Lie NFL API. This tool can answer questions about what NFL team a player plays for, their position, and their performance statistics.",
+    {"include_stats": genai.protos.Schema(type=genai.protos.Type.BOOLEAN, description="Whether to include detailed statistics for the player. Default is true.")}
 )
 
-get_player_stats_only_function = genai.protos.FunctionDeclaration(
-    name="get_player_stats_only",
-    description="Gets only the detailed statistics for a specific NFL player. Use this when you specifically need just the stats data without basic player information.",
-    parameters=genai.protos.Schema(
-        type=genai.protos.Type.OBJECT,
-        properties={
-            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
-            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player.")
-        },
-        required=["firstName", "lastName"]
-    )
+get_player_stats_only_function = create_player_function(
+    "get_player_stats_only",
+    "Gets only the detailed statistics for a specific NFL player. Use this when you specifically need just the stats data without basic player information."
 )
 
-get_comprehensive_player_analysis_function = genai.protos.FunctionDeclaration(
-    name="get_comprehensive_player_analysis",
-    description="Get a comprehensive analysis of an NFL player including all stats, team info, recent games, and performance metrics. This is the most complete analysis available.",
-    parameters=genai.protos.Schema(
-        type=genai.protos.Type.OBJECT,
-        properties={
-            "firstName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The first name of the NFL player."),
-            "lastName": genai.protos.Schema(type=genai.protos.Type.STRING, description="The last name of the NFL player.")
-        },
-        required=["firstName", "lastName"]
-    )
+get_comprehensive_player_analysis_function = create_player_function(
+    "get_comprehensive_player_analysis",
+    "Get a comprehensive analysis of an NFL player including all stats, team info, recent games, and performance metrics. This is the most complete analysis available."
 )
 
 get_team_statistics_function = genai.protos.FunctionDeclaration(
@@ -1149,66 +1216,168 @@ tool_declarations = [genai.protos.Tool(
 st.markdown('<div class="compact-section">', unsafe_allow_html=True)
 st.markdown("**⚡ Quick Searches** • Popular analysis examples")
 
+# Helper function for creating button sections
+def create_button_section(col, title, buttons):
+    with col:
+        st.markdown(f"**{title}**")
+        for label, prompt in buttons:
+            if st.button(label, key=f"{title.lower().replace(' ', '_')}_{label}", use_container_width=True):
+                st.session_state.selected_prompt = prompt
+                st.session_state.submitted_prompt = prompt
+                st.rerun()
+
 # Compact button grid
 col1, col2, col3, col4 = st.columns(4)
+button_groups = [
+    (col1, "� Star QBs", [("Mahomes", "Patrick Mahomes 2024 stats"), ("J.Allen", "Josh Allen performance"), ("L.Jackson", "Lamar Jackson analysis")]),
+    (col2, "🏈 Top Teams", [("Chiefs", "Kansas City Chiefs team stats"), ("Bills", "Buffalo Bills analysis"), ("vs Compare", "Bills vs Chiefs comparison")]),
+    (col3, "⭐ Skill Players", [("T.Hill", "Tyreek Hill receiving stats"), ("C.Kupp", "Cooper Kupp statistics"), ("A.Donald", "Aaron Donald performance")]),
+    (col4, "📊 League Data", [("AFC", "AFC standings 2024"), ("NFC", "NFC standings 2024"), ("Playoffs", "NFL playoff picture")])
+]
+for col, title, buttons in button_groups:
+    create_button_section(col, title, buttons)
 
-with col1:
-    st.markdown("**🏆 Star QBs**")
-    buttons = [
-        ("Mahomes", "Patrick Mahomes 2024 stats"),
-        ("J.Allen", "Josh Allen performance"),
-        ("L.Jackson", "Lamar Jackson analysis")
-    ]
-    for label, prompt in buttons:
-        if st.button(label, key=f"qb_{label}", use_container_width=True):
-            st.session_state.selected_prompt = prompt
-            st.session_state.submitted_prompt = prompt
-            st.rerun()
+# Conversation History Display
+if st.session_state.conversation_history:
+    with st.expander("💬 Conversation History", expanded=False):
+        for i, (question, answer) in enumerate(st.session_state.conversation_history[-3:], 1):  # Show last 3 conversations
+            st.markdown(f"**Q{i}:** {question}")
+            st.markdown(f"**A{i}:** {answer[:200]}..." if len(answer) > 200 else f"**A{i}:** {answer}")
+            if i < len(st.session_state.conversation_history[-3:]):
+                st.markdown("---")
 
-with col2:
-    st.markdown("**🏈 Top Teams**")
-    buttons = [
-        ("Chiefs", "Kansas City Chiefs team stats"),
-        ("Bills", "Buffalo Bills analysis"),
-        ("vs Compare", "Bills vs Chiefs comparison")
-    ]
-    for label, prompt in buttons:
-        if st.button(label, key=f"team_{label}", use_container_width=True):
-            st.session_state.selected_prompt = prompt
-            st.session_state.submitted_prompt = prompt
+# Follow-up Question Interface (appears after first analysis)
+if st.session_state.follow_up_mode and st.session_state.last_analysis_data:
+    st.markdown("### 💭 Ask a Follow-up Question")
+    st.markdown("*Based on the previous analysis, you can ask additional questions about the data.*")
+    
+    # Smart follow-up suggestions
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("📊 Compare with another player/team", key="compare_followup"):
+            st.session_state.selected_prompt = "Compare this with another player or team"
+            st.session_state.submitted_prompt = "Compare this with another player or team"
             st.rerun()
-
-with col3:
-    st.markdown("**⭐ Skill Players**")
-    buttons = [
-        ("T.Hill", "Tyreek Hill receiving stats"),
-        ("C.Kupp", "Cooper Kupp statistics"),
-        ("A.Donald", "Aaron Donald performance")
-    ]
-    for label, prompt in buttons:
-        if st.button(label, key=f"skill_{label}", use_container_width=True):
-            st.session_state.selected_prompt = prompt
-            st.session_state.submitted_prompt = prompt
+    with col2:
+        if st.button("📈 Show trends and projections", key="trends_followup"):
+            st.session_state.selected_prompt = "Show me trends and future projections for this data"
+            st.session_state.submitted_prompt = "Show me trends and future projections for this data"
             st.rerun()
-
-with col4:
-    st.markdown("**📊 League Data**")
-    buttons = [
-        ("AFC", "AFC standings 2024"),
-        ("NFC", "NFC standings 2024"),
-        ("Playoffs", "NFL playoff picture")
-    ]
-    for label, prompt in buttons:
-        if st.button(label, key=f"league_{label}", use_container_width=True):
-            st.session_state.selected_prompt = prompt
-            st.session_state.submitted_prompt = prompt
+    with col3:
+        if st.button("🔍 Deeper analysis", key="deeper_followup"):
+            st.session_state.selected_prompt = "Give me a deeper analysis of this data"
+            st.session_state.submitted_prompt = "Give me a deeper analysis of this data"
             st.rerun()
+    
+    st.markdown("---")
 
 # Only process when user has submitted a query
 if st.session_state.get('submitted_prompt'):
     
-    with st.spinner("Analyzing your request and generating report..."):
+    # Determine response strategy
+    if st.session_state.follow_up_mode and st.session_state.conversation_history:
+        # Classify the follow-up question
+        question_type = classify_followup_question(
+            st.session_state.submitted_prompt,
+            st.session_state.conversation_history,
+            st.session_state.last_analysis_data
+        )
+        
+        if question_type == "llm_direct":
+            # Handle with direct LLM response
+            with st.spinner("💭 Analyzing with existing context..."):
+                try:
+                    # Helper function for styled containers
+                    def styled_container(content, gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)", extra_style=""):
+                        return f"""<div style="background: {gradient}; padding: 20px; border-radius: 15px; margin: 20px 0; text-align: center; color: white; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1); {extra_style}">{content}</div>"""
+                    
+                    # Add anchor and auto-scroll
+                    st.markdown('<div id="analysis-output"></div><script>setTimeout(function() { document.getElementById("analysis-output").scrollIntoView({behavior: "smooth", block: "start"}); }, 500);</script>', unsafe_allow_html=True)
+                    
+                    # Enhanced header for follow-up response
+                    header_content = '<h2 style="margin: 0; font-size: 2em;">💭 Follow-up Analysis</h2><p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">📊 Contextual analysis using existing data</p>'
+                    question_content = f'<strong>🔍 Your Question:</strong> {st.session_state.submitted_prompt}'
+                    st.markdown(styled_container(header_content), unsafe_allow_html=True)
+                    st.markdown(styled_container(question_content, "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)", "border-left: 5px solid #667eea; text-align: left; color: #333;"), unsafe_allow_html=True)
+                    
+                    # Generate direct LLM response
+                    response_text = generate_direct_llm_response(
+                        st.session_state.submitted_prompt,
+                        st.session_state.conversation_history,
+                        st.session_state.last_analysis_data
+                    )
+                    
+                    # Display response with source indicator
+                    st.markdown("### 📝 Analysis Response")
+                    st.info("💡 **Response Source**: Generated using existing data context and NFL knowledge (no new API calls needed)")
+                    
+                    # Display the response
+                    with st.container():
+                        st.markdown('<div class="compact-section">', unsafe_allow_html=True)
+                        st.markdown(response_text)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    # Save conversation to history
+                    current_question = st.session_state.submitted_prompt
+                    current_answer = response_text
+                    st.session_state.conversation_history.append((current_question, current_answer))
+                    
+                    # Clear the submitted prompt
+                    st.session_state.submitted_prompt = ""
+                    
+                    # Add follow-up prompt interface
+                    st.markdown("---")
+                    st.markdown("### 💭 Ask Another Follow-up Question")
+                    follow_up_question = st.text_input(
+                        "Continue the conversation:",
+                        placeholder="Ask for more details, comparisons, explanations...",
+                        key="followup_direct_input"
+                    )
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button("🔍 Ask Follow-up", key="followup_direct_submit", type="primary"):
+                            if follow_up_question:
+                                st.session_state.submitted_prompt = follow_up_question
+                                st.rerun()
+                            else:
+                                st.warning("Please enter a follow-up question first.")
+                    
+                    with col2:
+                        if st.button("🔄 New Analysis", key="new_analysis_direct"):
+                            # Clear conversation history and start fresh
+                            st.session_state.conversation_history = []
+                            st.session_state.last_analysis_data = None
+                            st.session_state.follow_up_mode = False
+                            st.session_state.submitted_prompt = ""
+                            st.session_state.selected_prompt = ""
+                            st.rerun()
+                    
+                    st.stop()  # Stop here for direct LLM responses
+                    
+                except Exception as e:
+                    st.error(f"Error in direct LLM response: {e}")
+                    st.info("Falling back to full API analysis...")
+                    # Fall through to normal API processing
+    
+    # Normal API processing (for new questions or when direct LLM fails)
+    with st.spinner("🔍 Fetching fresh data and analyzing..."):
         try:
+            # Build conversation context
+            conversation_context = ""
+            if st.session_state.conversation_history:
+                conversation_context = "\n\nCONVERSATION HISTORY:\n"
+                for i, (prev_q, prev_a) in enumerate(st.session_state.conversation_history[-2:], 1):
+                    conversation_context += f"Previous Q{i}: {prev_q}\n"
+                    conversation_context += f"Previous A{i}: {prev_a[:300]}...\n\n"
+                conversation_context += "Use this context to provide relevant follow-up analysis.\n"
+            
+            # Include previous analysis data if available
+            previous_data_context = ""
+            if st.session_state.last_analysis_data:
+                previous_data_context = f"\n\nPREVIOUS ANALYSIS DATA AVAILABLE:\n{str(st.session_state.last_analysis_data)[:500]}...\n"
+                previous_data_context += "You can reference this previous data in your response if relevant to the current question.\n"
+            
             # Add context to the prompt to guide Gemini's behavior
             context_prompt = (
                 "You are a top-tier NFL analyst with access to comprehensive NFL data AND supplementary CSV data. Your task is to analyze the user's question and use the appropriate tools:\n"
@@ -1382,6 +1551,9 @@ if st.session_state.get('submitted_prompt'):
                         final_prompt = f"""
                         Based on the user's question: "{st.session_state.submitted_prompt}"
                         
+                        {conversation_context}
+                        {previous_data_context}
+                        
                         And the following NFL data:
                         {tool_output}
                         
@@ -1440,49 +1612,18 @@ if st.session_state.get('submitted_prompt'):
                         if hasattr(response_with_tool_output, 'text'):
                             st.write("**Direct .text property:**", response_with_tool_output.text[:200] + "..." if response_with_tool_output.text else "None")
 
-                    # Add anchor point right before the analysis report
-                    st.markdown('<div id="analysis-output"></div>', unsafe_allow_html=True)
+                    # Helper function for styled containers
+                    def styled_container(content, gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)", extra_style=""):
+                        return f"""<div style="background: {gradient}; padding: 20px; border-radius: 15px; margin: 20px 0; text-align: center; color: white; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1); {extra_style}">{content}</div>"""
                     
-                    # Add JavaScript to scroll to the actual output area
-                    st.markdown("""
-                    <script>
-                        setTimeout(function() {
-                            document.getElementById('analysis-output').scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
-                        }, 500);
-                    </script>
-                    """, unsafe_allow_html=True)
+                    # Add anchor and auto-scroll
+                    st.markdown('<div id="analysis-output"></div><script>setTimeout(function() { document.getElementById("analysis-output").scrollIntoView({behavior: "smooth", block: "start"}); }, 500);</script>', unsafe_allow_html=True)
                     
-                    # Enhanced header with styling
-                    st.markdown("""
-                    <div style="
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        padding: 20px;
-                        border-radius: 15px;
-                        margin: 20px 0;
-                        text-align: center;
-                        color: white;
-                        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-                    ">
-                        <h2 style="margin: 0; font-size: 2em;">📊 NFL Analysis Report</h2>
-                        <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Comprehensive data analysis powered by Ball Don't Lie API</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Display the user's question in a styled info box
-                    st.markdown(f"""
-                    <div style="
-                        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-                        padding: 15px;
-                        border-radius: 10px;
-                        border-left: 5px solid #667eea;
-                        margin: 15px 0;
-                    ">
-                        <strong>🔍 Your Question:</strong> {st.session_state.submitted_prompt}
-                    </div>
-                    """, unsafe_allow_html=True)
+                    # Enhanced header and question display
+                    header_content = '<h2 style="margin: 0; font-size: 2em;">📊 NFL Analysis Report</h2><p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Comprehensive data analysis powered by Ball Don\'t Lie API</p>'
+                    question_content = f'<strong>🔍 Your Question:</strong> {st.session_state.submitted_prompt}'
+                    st.markdown(styled_container(header_content), unsafe_allow_html=True)
+                    st.markdown(styled_container(question_content, "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)", "border-left: 5px solid #667eea; text-align: left; color: #333;"), unsafe_allow_html=True)
                     
                     # Clear the submitted prompt after processing to prevent re-running
                     processed_prompt = st.session_state.submitted_prompt
@@ -1497,11 +1638,53 @@ if st.session_state.get('submitted_prompt'):
                                     response_text += part.text
                             
                             if response_text:
+                                # Add source indicator for API responses
+                                st.success("🔄 **Response Source**: Fresh data from Ball Don't Lie NFL API + AI analysis")
+                                
                                 # Display the response in a compact container
                                 with st.container():
                                     st.markdown('<div class="compact-section">', unsafe_allow_html=True)
                                     st.markdown(response_text)
                                     st.markdown('</div>', unsafe_allow_html=True)
+                                
+                                # Save conversation to history
+                                current_question = processed_prompt
+                                current_answer = response_text
+                                st.session_state.conversation_history.append((current_question, current_answer))
+                                
+                                # Store the analysis data for follow-up questions
+                                st.session_state.last_analysis_data = tool_output
+                                
+                                # Enable follow-up mode
+                                st.session_state.follow_up_mode = True
+                                
+                                # Add follow-up prompt interface
+                                st.markdown("---")
+                                st.markdown("### 💭 Ask a Follow-up Question")
+                                follow_up_question = st.text_input(
+                                    "Ask anything about this analysis or request additional insights:",
+                                    placeholder="e.g., Compare this to another player, Show trends, Explain a specific stat...",
+                                    key="follow_up_input"
+                                )
+                                
+                                col1, col2 = st.columns([3, 1])
+                                with col1:
+                                    if st.button("🔍 Ask Follow-up", key="follow_up_submit", type="primary"):
+                                        if follow_up_question:
+                                            st.session_state.submitted_prompt = follow_up_question
+                                            st.rerun()
+                                        else:
+                                            st.warning("Please enter a follow-up question first.")
+                                
+                                with col2:
+                                    if st.button("🔄 New Analysis", key="new_analysis"):
+                                        # Clear conversation history and start fresh
+                                        st.session_state.conversation_history = []
+                                        st.session_state.last_analysis_data = None
+                                        st.session_state.follow_up_mode = False
+                                        st.session_state.submitted_prompt = ""
+                                        st.session_state.selected_prompt = ""
+                                        st.rerun()
                             else:
                                 st.error("No text content found in the response.")
                                 st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
