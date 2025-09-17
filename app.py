@@ -361,37 +361,89 @@ st.markdown("""
         border-left: 5px solid #28a745;
         border-radius: 10px;
     }
+    
+    /* Compact UI styles */
+    .stApp { padding-top: 1rem; }
+    .main-header { 
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        padding: 12px 20px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        color: white;
+        text-align: center;
+    }
+    .compact-section {
+        background: #f8f9fa;
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin: 8px 0;
+        border-left: 3px solid #667eea;
+    }
+    .data-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 6px 0;
+        align-items: center;
+    }
+    .data-label {
+        font-weight: 600;
+        color: #495057;
+        margin-right: 6px;
+        min-width: fit-content;
+    }
+    .data-value {
+        color: #212529;
+        flex: 1;
+    }
+    .btn-compact {
+        padding: 4px 8px !important;
+        margin: 2px !important;
+        font-size: 0.8rem !important;
+    }
+    div[data-testid="metric-container"] {
+        background: white;
+        border: 1px solid #e9ecef;
+        padding: 6px;
+        border-radius: 4px;
+        margin: 2px 0;
+    }
+    .streamlit-expanderHeader {
+        font-size: 0.85rem !important;
+        padding: 6px 10px !important;
+    }
+    .streamlit-expanderContent {
+        padding: 8px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏈 NFL Player Analyst")
-
-# --- CSV DATA UPLOAD SECTION ---
+# Compact main header
 st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);
-    padding: 20px;
-    border-radius: 15px;
-    margin: 20px 0;
-    text-align: center;
-    color: white;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-">
-    <h3 style="margin: 0; font-size: 1.8em;">📊 Enhanced Data Analysis</h3>
-    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Upload your own CSV data or use our enhanced NFL dataset</p>
+<div class="main-header">
+    <h2 style="margin: 0; font-size: 1.6em;">🏈 NFL Analytics Platform</h2>
+    <p style="margin: 4px 0 0 0; font-size: 0.9em; opacity: 0.9;">Player stats • Team analysis • Enhanced data insights</p>
 </div>
 """, unsafe_allow_html=True)
 
-with st.expander("🔧 CSV Data Management", expanded=False):
+# CSV Data Management - Compact Design
+st.markdown('<div class="compact-section">', unsafe_allow_html=True)
+col1, col2 = st.columns([2, 1])
+with col1:
+    st.markdown("**📊 Data Sources** • Upload CSV files or use enhanced NFL dataset")
+with col2:
+    if st.button("⚙️ Manage Data", key="toggle_csv", help="Upload CSV files or load enhanced data"):
+        st.session_state.show_csv_manager = not st.session_state.get('show_csv_manager', False)
+
+if st.session_state.get('show_csv_manager', False):
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 📤 Upload Your CSV")
         uploaded_files = st.file_uploader(
-            "Upload CSV files with additional NFL data",
+            "Upload CSV files",
             type=['csv'],
             accept_multiple_files=True,
-            help="Upload fantasy projections, advanced metrics, injury reports, or any supplementary NFL data"
+            help="Fantasy projections, advanced metrics, etc."
         )
         
         if uploaded_files:
@@ -399,97 +451,50 @@ with st.expander("🔧 CSV Data Management", expanded=False):
                 if uploaded_file.name not in st.session_state.csv_data:
                     df, filename = process_uploaded_csv(uploaded_file)
                     if df is not None:
-                        st.success(f"✅ Loaded: {filename} ({len(df)} rows)")
-                        
-                        # Show preview
-                        with st.expander(f"Preview: {filename}", expanded=False):
-                            st.dataframe(df.head())
-                            st.info(f"Columns: {', '.join(df.columns.tolist())}")
+                        st.success(f"✅ {filename} • {len(df)} rows")
     
     with col2:
-        st.markdown("### 📋 Pre-loaded Enhanced Data")
-        
-        if st.button("🔄 Refresh Enhanced Data", help="Reload the pre-loaded enhanced NFL dataset"):
-            load_preloaded_csv()
-            st.success("✅ Enhanced data refreshed!")
-        
         if st.session_state.preloaded_csv is not None:
-            st.success(f"✅ Enhanced data loaded ({len(st.session_state.preloaded_csv)} players)")
-            
-            with st.expander("Preview Enhanced Data", expanded=False):
-                st.dataframe(st.session_state.preloaded_csv.head())
-                st.info(f"Enhanced metrics: {', '.join(st.session_state.preloaded_csv.columns.tolist())}")
+            st.success(f"✅ Enhanced data ready • {len(st.session_state.preloaded_csv)} players")
         else:
-            if st.button("📊 Load Enhanced Data"):
+            if st.button("📊 Load Enhanced Data", key="load_enhanced"):
                 load_preloaded_csv()
                 st.rerun()
     
-    # Show currently loaded CSV files
+    # Current data sources summary
     if st.session_state.csv_data or st.session_state.preloaded_csv is not None:
-        st.markdown("### 📈 Available Data Sources")
-        
-        # User uploaded files
+        sources = []
         if st.session_state.csv_data:
-            st.markdown("**🔹 User Uploaded Files:**")
-            for filename, df in st.session_state.csv_data.items():
-                col_a, col_b, col_c = st.columns([3, 1, 1])
-                with col_a:
-                    st.text(f"📄 {filename}")
-                with col_b:
-                    st.text(f"{len(df)} rows")
-                with col_c:
-                    if st.button("🗑️", key=f"delete_{filename}", help=f"Remove {filename}"):
-                        del st.session_state.csv_data[filename]
-                        st.rerun()
-        
-        # Pre-loaded data
+            sources.extend([f"📄 {name} ({len(df)} rows)" for name, df in st.session_state.csv_data.items()])
         if st.session_state.preloaded_csv is not None:
-            st.markdown("**🔹 Pre-loaded Enhanced Data:**")
-            st.text(f"📊 Enhanced NFL Dataset ({len(st.session_state.preloaded_csv)} players)")
-    else:
-        st.info("💡 Upload CSV files or load enhanced data to enable advanced analysis features!")
+            sources.append(f"📊 Enhanced NFL Dataset ({len(st.session_state.preloaded_csv)} players)")
+        
+        st.markdown(f"**Active:** {' • '.join(sources)}")
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Load preloaded CSV on app start
 if st.session_state.preloaded_csv is None:
     load_preloaded_csv()
 
-# --- AI-Powered NFL Analysis ---
-# Initialize session state variables
-if 'selected_prompt' not in st.session_state:
-    st.session_state.selected_prompt = ""
-
-if 'submitted_prompt' not in st.session_state:
-    st.session_state.submitted_prompt = ""
-
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px;
-    border-radius: 15px;
-    margin: 20px 0;
-    text-align: center;
-    color: white;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-">
-    <h2 style="margin: 0; font-size: 2.2em;">🏈 AI-Powered NFL Analysis</h2>
-    <p style="margin: 10px 0 0 0; font-size: 1.1em; opacity: 0.9;">Get instant analysis on any NFL player, team, or stat with enhanced data insights</p>
-</div>
-""", unsafe_allow_html=True)
+# Search Interface - Compact Design  
+st.markdown('<div class="compact-section">', unsafe_allow_html=True)
+st.markdown("**🔍 NFL Analysis** • Ask about any player, team, or stat")
 
 # Create a form to handle submission properly
 with st.form(key="query_form", clear_on_submit=False):
-    user_prompt = st.text_input(
-        "Ask about any NFL player, team, or stat",
-        placeholder="e.g., What were the stats for Patrick Mahomes last season?",
-        value=st.session_state.selected_prompt,
-        help="Ask about any NFL player stats, team performance, weekly data, or league standings"
-    )
-    
-    col1, col2 = st.columns([1, 4])
+    col1, col2, col3 = st.columns([6, 1, 1])
     with col1:
-        submit_button = st.form_submit_button("🔍 Analyze", use_container_width=True, type="primary")
+        user_prompt = st.text_input(
+            "Query",
+            placeholder="e.g., Patrick Mahomes stats, Chiefs vs Bills comparison",
+            value=st.session_state.selected_prompt,
+            label_visibility="collapsed"
+        )
     with col2:
-        if st.form_submit_button("🗑️ Clear", use_container_width=True):
+        submit_button = st.form_submit_button("🔍", help="Analyze", use_container_width=True)
+    with col3:
+        if st.form_submit_button("✖️", help="Clear", use_container_width=True):
             st.session_state.selected_prompt = ""
             st.session_state.submitted_prompt = ""
             st.rerun()
@@ -499,6 +504,8 @@ if submit_button and user_prompt.strip():
     st.session_state.submitted_prompt = user_prompt.strip()
 elif submit_button and not user_prompt.strip():
     st.warning("⚠️ Please enter a question before clicking Analyze!")
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Function Definitions ---
 def get_nfl_teams(division=None, conference=None):
@@ -576,6 +583,56 @@ def get_nfl_player_injuries(team_ids=None, player_ids=None, per_page=25):
         st.error(f"Error fetching player injuries: {e}")
         return {"error": str(e)}
 
+def get_team_statistics(team_name, season=2024):
+    """
+    Get comprehensive team statistics for a specific team and season
+    This is a dedicated function for team analysis
+    """
+    try:
+        # First get team info to find the team ID
+        teams_data = get_nfl_teams()
+        teams = json.loads(teams_data) if isinstance(teams_data, str) else teams_data
+        
+        if isinstance(teams, dict) and teams.get('error'):
+            return teams_data
+            
+        # Find the team by name (case insensitive)
+        team_id = None
+        team_info = None
+        team_name_lower = team_name.lower()
+        
+        for team in teams.get('data', []):
+            if (team_name_lower in team.get('full_name', '').lower() or 
+                team_name_lower in team.get('name', '').lower() or
+                team_name_lower in team.get('city', '').lower()):
+                team_id = team.get('id')
+                team_info = team
+                break
+        
+        if not team_id:
+            return json.dumps({"error": f"Team '{team_name}' not found"})
+        
+        # Get team statistics using season stats with team filter
+        season_stats = get_nfl_season_stats(season=season, team_id=team_id)
+        stats_data = json.loads(season_stats) if isinstance(season_stats, str) else season_stats
+        
+        # Get team standings for additional context
+        standings_data = get_nfl_standings(season=season)
+        standings = json.loads(standings_data) if isinstance(standings_data, str) else standings_data
+        
+        # Combine all team data
+        result = {
+            "team_info": team_info,
+            "season_stats": stats_data,
+            "standings": standings,
+            "season": season
+        }
+        
+        return json.dumps(result)
+        
+    except Exception as e:
+        st.error(f"Error fetching team statistics: {e}")
+        return json.dumps({"error": str(e)})
 
 
 def get_comprehensive_player_analysis(firstName: str, lastName: str):
@@ -1056,86 +1113,93 @@ tool_declarations = [
                     "required": []
                 }
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_team_statistics",
+                    "description": "Get comprehensive team statistics including season stats, standings, and team information for a specific NFL team. Use this for team performance analysis, team comparisons, or when users ask about team stats.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "team_name": {
+                                "type": "string",
+                                "description": "The name of the NFL team (e.g., 'Kansas City Chiefs', 'Buffalo Bills', 'Chiefs', 'Bills')"
+                            },
+                            "season": {
+                                "type": "integer",
+                                "description": "The NFL season year (default: 2024)",
+                                "default": 2024
+                            }
+                        },
+                        "required": ["team_name"]
+                    }
+                }
+            },
         ]
     }
 ]
 
 
-# --- RECOMMENDATION BUTTONS ---
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 15px;
-    border-radius: 15px;
-    margin: 20px 0;
-    text-align: center;
-    color: white;
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
-">
-    <h3 style="margin: 0; font-size: 1.5em;">💡 Popular NFL Searches</h3>
-    <p style="margin: 5px 0 0 0; opacity: 0.9;">Click any button below for instant analysis</p>
-</div>
-""", unsafe_allow_html=True)
+# Quick Search Options
+st.markdown('<div class="compact-section">', unsafe_allow_html=True)
+st.markdown("**⚡ Quick Searches** • Popular analysis examples")
 
-col1, col2, col3 = st.columns(3)
+# Compact button grid
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.markdown("**🏆 Star Players**")
-    if st.button("📊 Patrick Mahomes Stats", use_container_width=True):
-        st.session_state.selected_prompt = "What are Patrick Mahomes' stats for the 2024 season?"
-        st.session_state.submitted_prompt = "What are Patrick Mahomes' stats for the 2024 season?"
-        st.rerun()
-    if st.button("🏃 Josh Allen Performance", use_container_width=True):
-        st.session_state.selected_prompt = "Show me Josh Allen's performance this season"
-        st.session_state.submitted_prompt = "Show me Josh Allen's performance this season"
-        st.rerun()
-    if st.button("🎯 Lamar Jackson Analysis", use_container_width=True):
-        st.session_state.selected_prompt = "Give me a comprehensive analysis of Lamar Jackson"
-        st.session_state.submitted_prompt = "Give me a comprehensive analysis of Lamar Jackson"
-        st.rerun()
-    if st.button("🔥 Dak Prescott Stats", use_container_width=True):
-        st.session_state.selected_prompt = "How has Dak Prescott been performing this year?"
-        st.session_state.submitted_prompt = "How has Dak Prescott been performing this year?"
-        st.rerun()
+    st.markdown("**🏆 Star QBs**")
+    buttons = [
+        ("Mahomes", "Patrick Mahomes 2024 stats"),
+        ("J.Allen", "Josh Allen performance"),
+        ("L.Jackson", "Lamar Jackson analysis")
+    ]
+    for label, prompt in buttons:
+        if st.button(label, key=f"qb_{label}", use_container_width=True):
+            st.session_state.selected_prompt = prompt
+            st.session_state.submitted_prompt = prompt
+            st.rerun()
 
 with col2:
-    st.markdown("**🏈 Team & League Info**")
-    if st.button("🦅 Eagles Team Info", use_container_width=True):
-        st.session_state.selected_prompt = "Tell me about the Philadelphia Eagles team"
-        st.session_state.submitted_prompt = "Tell me about the Philadelphia Eagles team"
-        st.rerun()
-    if st.button("📈 AFC Standings", use_container_width=True):
-        st.session_state.selected_prompt = "Show me the current AFC standings for 2025"
-        st.session_state.submitted_prompt = "Show me the current AFC standings for 2025"
-        st.rerun()
-    if st.button("🏆 Chiefs Season Stats", use_container_width=True):
-        st.session_state.selected_prompt = "What are the Kansas City Chiefs' season statistics?"
-        st.session_state.submitted_prompt = "What are the Kansas City Chiefs' season statistics?"
-        st.rerun()
-    if st.button("🔥 Bills vs Chiefs Comparison", use_container_width=True):
-        st.session_state.selected_prompt = "Compare the Buffalo Bills and Kansas City Chiefs teams"
-        st.session_state.submitted_prompt = "Compare the Buffalo Bills and Kansas City Chiefs teams"
-        st.rerun()
+    st.markdown("**🏈 Top Teams**")
+    buttons = [
+        ("Chiefs", "Kansas City Chiefs team stats"),
+        ("Bills", "Buffalo Bills analysis"),
+        ("vs Compare", "Bills vs Chiefs comparison")
+    ]
+    for label, prompt in buttons:
+        if st.button(label, key=f"team_{label}", use_container_width=True):
+            st.session_state.selected_prompt = prompt
+            st.session_state.submitted_prompt = prompt
+            st.rerun()
 
 with col3:
-    st.markdown("**⭐ Rising Stars & Legends**")
-    if st.button("🌟 C.J. Stroud Stats", use_container_width=True):
-        st.session_state.selected_prompt = "Enter your search here"
-        st.session_state.submitted_prompt = "Enter your search here"
-        st.rerun()
-    if st.button("💨 Tyreek Hill Analysis", use_container_width=True):
-        st.session_state.selected_prompt = "Show me Tyreek Hill's receiving stats"
-        st.session_state.submitted_prompt = "Show me Tyreek Hill's receiving stats"
-        st.rerun()
-    if st.button("🛡️ Aaron Donald Performance", use_container_width=True):
-        st.session_state.selected_prompt = "Give me Aaron Donald's defensive stats"
-        st.session_state.submitted_prompt = "Give me Aaron Donald's defensive stats"
-        st.rerun()
-    if st.button("⚡ Cooper Kupp Stats", use_container_width=True):
-        st.session_state.selected_prompt = "What are Cooper Kupp's receiving statistics?"
-        st.session_state.submitted_prompt = "What are Cooper Kupp's receiving statistics?"
-        st.rerun()
+    st.markdown("**⭐ Skill Players**")
+    buttons = [
+        ("T.Hill", "Tyreek Hill receiving stats"),
+        ("C.Kupp", "Cooper Kupp statistics"),
+        ("A.Donald", "Aaron Donald performance")
+    ]
+    for label, prompt in buttons:
+        if st.button(label, key=f"skill_{label}", use_container_width=True):
+            st.session_state.selected_prompt = prompt
+            st.session_state.submitted_prompt = prompt
+            st.rerun()
 
+with col4:
+    st.markdown("**📊 League Data**")
+    buttons = [
+        ("AFC", "AFC standings 2024"),
+        ("NFC", "NFC standings 2024"),
+        ("Playoffs", "NFL playoff picture")
+    ]
+    for label, prompt in buttons:
+        if st.button(label, key=f"league_{label}", use_container_width=True):
+            st.session_state.selected_prompt = prompt
+            st.session_state.submitted_prompt = prompt
+            st.rerun()
+
+# Processing Section - Horizontal Line and Main Analysis
 st.markdown("---")
 
 # Only process when user has submitted a query
@@ -1155,6 +1219,7 @@ if st.session_state.get('submitted_prompt'):
                 "\n"
                 "TEAM & LEAGUE TOOLS:\n"
                 "- `get_nfl_teams` - Get team information, filter by division or conference\n"
+                "- `get_team_statistics` - Get comprehensive team statistics (RECOMMENDED for team analysis)\n"
                 "- `get_nfl_standings` - Get standings for any season\n"
                 "- `get_nfl_season_stats` - Comprehensive season statistics with filtering\n"
                 "- `get_nfl_games` - Get game schedules, matchups, and weekly game data\n"
@@ -1163,25 +1228,24 @@ if st.session_state.get('submitted_prompt'):
                 "- For basic player questions → use `get_player_stats_from_api`\n"
                 "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
                 "- For ENHANCED analysis with projections/rankings → use `get_enhanced_player_analysis_with_csv`\n"
+                "- For team statistics and analysis → use `get_team_statistics` (most comprehensive)\n"
                 "- For weekly data (week 1, week 2, etc.) → use `get_nfl_games` with week filters\n"
-                "- For team comparisons → FIRST use `get_nfl_teams` to get team IDs, THEN use `get_nfl_season_stats` with team_id filter\n"
+                "- For team comparisons → use `get_team_statistics` for each team\n"
                 "- For team information only → use `get_nfl_teams`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
                 "- For game schedules/matchups → use `get_nfl_games`\n"
                 "\n"
-                "CRITICAL FOR TEAM COMPARISONS:\n"
-                "When users ask to compare teams (like Buffalo Bills vs Kansas City Chiefs):\n"
-                "1. FIRST call `get_nfl_teams` to get basic team information\n"
-                "2. THEN call `get_nfl_season_stats` with team_id parameters for each team\n"
-                "3. THEN call `get_nfl_standings` for current season context\n"
-                "4. You MUST make these function calls - do not just return empty data\n"
-                "5. Use the actual team data returned from the API calls to create your comparison\n"
+                "CRITICAL FOR TEAM ANALYSIS:\n"
+                "When users ask about team performance or comparisons:\n"
+                "1. FIRST try `get_team_statistics` for comprehensive team data\n"
+                "2. Alternative: use `get_nfl_teams` + `get_nfl_season_stats` + `get_nfl_standings`\n"
+                "3. You MUST make these function calls - do not just return empty data\n"
+                "4. Use the actual team data returned from the API calls to create your analysis\n"
                 "\n"
                 "EXAMPLE: For 'compare Buffalo Bills and Kansas City Chiefs':\n"
-                "- Call get_nfl_teams() to find team IDs and basic info\n"
-                "- Call get_nfl_season_stats(season=2025, team_id=BILLS_ID) \n"
-                "- Call get_nfl_season_stats(season=2025, team_id=CHIEFS_ID)\n"
-                "- Call get_nfl_standings(season=2025) for context\n"
+                "- Call get_team_statistics(team_name='Buffalo Bills', season=2024)\n"
+                "- Call get_team_statistics(team_name='Kansas City Chiefs', season=2024)\n"
+                "- Compare the comprehensive data returned\n"
                 "\n"
                 "CSV DATA CAPABILITIES:\n"
                 "- Fantasy projections and rankings\n"
@@ -1300,6 +1364,12 @@ if st.session_state.get('submitted_prompt'):
                                 postseason=function_call.args.get('postseason')
                             )
                             tool_output = json.dumps(games_data)
+                        elif function_call.name == "get_team_statistics":
+                            team_stats = get_team_statistics(
+                                team_name=function_call.args.get('team_name'),
+                                season=function_call.args.get('season', 2024)
+                            )
+                            tool_output = team_stats
                         else:
                             tool_output = json.dumps({"error": f"Unknown function: {function_call.name}"})
 
@@ -1427,22 +1497,11 @@ if st.session_state.get('submitted_prompt'):
                                     response_text += part.text
                             
                             if response_text:
-                                # Display the response in a styled container
+                                # Display the response in a compact container
                                 with st.container():
-                                    st.markdown("""
-                                    <div style="
-                                        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-                                        padding: 25px;
-                                        border-radius: 15px;
-                                        margin: 20px 0;
-                                        border: 1px solid rgba(102, 126, 234, 0.2);
-                                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                                    ">
-                                    """, unsafe_allow_html=True)
-                                    
+                                    st.markdown('<div class="compact-section">', unsafe_allow_html=True)
                                     st.markdown(response_text)
-                                    
-                                    st.markdown("</div>", unsafe_allow_html=True)
+                                    st.markdown('</div>', unsafe_allow_html=True)
                             else:
                                 st.error("No text content found in the response.")
                                 st.write("Debug - Response structure:", str(response_with_tool_output)[:500] + "...")
@@ -1463,23 +1522,13 @@ if st.session_state.get('submitted_prompt'):
                         except Exception as alt_error:
                             st.error(f"Alternative extraction also failed: {alt_error}")
                     
-                    # Add comprehensive fantasy analysis outlook at the end (if we have a processed prompt)
+                    # Add fantasy analysis outlook
                     if 'processed_prompt' in locals() and processed_prompt:
                         st.markdown("---")
-                        st.markdown("""
-                        <div style="
-                            background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 50%, #45B7D1 100%);
-                            padding: 25px;
-                            border-radius: 15px;
-                            margin: 25px 0;
-                            text-align: center;
-                            color: white;
-                            box-shadow: 0 8px 16px rgba(255, 107, 107, 0.3);
-                        ">
-                            <h2 style="margin: 0 0 15px 0; font-size: 2.2em;">🏆 Fantasy Football Outlook</h2>
-                            <p style="margin: 0; font-size: 1.2em; opacity: 0.95;">Data-driven insights for your fantasy lineup decisions</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown('<div class="compact-section">', unsafe_allow_html=True)
+                        st.markdown("### 🏆 Fantasy Football Outlook")
+                        st.markdown("*Data-driven insights for your fantasy lineup decisions*")
+                        st.markdown('</div>', unsafe_allow_html=True)
                         
                         # Generate additional fantasy analysis with processed_prompt
                         fantasy_prompt = f"""
@@ -1587,51 +1636,33 @@ st.markdown("---")
 st.markdown("---")
 
 with st.expander("⚙️ Technical Dashboard - API Rate Limiting & System Info", expanded=False):
-    st.markdown("### 📊 API Rate Limiting Dashboard")
+    # API Metrics - Compact Display
+    st.markdown("### 📊 API Status")
     current_time = time.time()
     recent_calls = [call_time for call_time in st.session_state.api_call_times if current_time - call_time < 60]
     calls_remaining = 60 - len(recent_calls)
+    cache_size = len(st.session_state.api_cache)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        # Color code based on usage
-        delta_color = "normal" if len(recent_calls) < 30 else "inverse"
-        st.metric(
-            "🔥 API Calls (Last Minute)", 
-            len(recent_calls), 
-            delta=f"of 60 max",
-            delta_color=delta_color,
-            help="Number of API calls made in the last 60 seconds"
-        )
-    with col2:
-        # Color code remaining calls
-        remaining_color = "normal" if calls_remaining > 20 else "inverse"
-        st.metric(
-            "⚡ Calls Remaining", 
-            calls_remaining, 
-            delta=f"{round((calls_remaining/60)*100)}% available",
-            delta_color=remaining_color,
-            help="Remaining API calls before rate limit"
-        )
-    with col3:
-        cache_size = len(st.session_state.api_cache)
-        st.metric(
-            "📋 Cached Responses", 
-            cache_size, 
-            delta="saves API calls",
-            help="Number of cached API responses (reduces future calls)"
-        )
+    # Horizontal metrics layout
+    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+with col1:
+    color = "🔴" if len(recent_calls) > 50 else "�" if len(recent_calls) > 30 else "🟢"
+    st.markdown(f"**{color} Calls Used:** {len(recent_calls)}/60")
+with col2:
+    color = "🔴" if calls_remaining < 10 else "🟡" if calls_remaining < 20 else "🟢"
+    st.markdown(f"**{color} Remaining:** {calls_remaining}")
+with col3:
+    st.markdown(f"**📋 Cached:** {cache_size} responses")
+with col4:
+    pct = round((calls_remaining/60)*100)
+    st.markdown(f"**{pct}%** free")
 
-    # Visual status indicators
-    if calls_remaining < 10:
-        st.error(f"🚨 **CRITICAL**: Only {calls_remaining} API calls remaining this minute! The app will automatically wait to avoid rate limits.")
-    elif calls_remaining < 20:
-        st.warning(f"⚠️ **WARNING**: {calls_remaining} API calls remaining this minute. Consider using cached data.")
-    elif calls_remaining < 40:
-        st.info(f"🟡 **MODERATE**: {calls_remaining} API calls remaining this minute.")
-    else:
-        st.success(f"🟢 **HEALTHY**: {calls_remaining} API calls remaining this minute. Ready for queries!")
-    
+# Compact status alerts
+if calls_remaining < 10:
+    st.error(f"🚨 Only {calls_remaining} calls left - rate limit protection active")
+elif calls_remaining < 20:
+    st.warning(f"⚠️ {calls_remaining} calls remaining - consider using cache")
+
     st.markdown("### 🔧 System Information")
     st.info("""
     **Rate Limiting**: 60 requests per minute with intelligent caching  
