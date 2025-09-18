@@ -791,109 +791,40 @@ def add_static_followup_suggestions(new_suggestions):
     st.session_state.followup_counter += 1
 
 def display_static_followup_buttons():
-    """
-    Display static follow-up buttons with gradient styling
-    """
-    if st.session_state.static_followup_suggestions:
-        st.markdown("**🎯 Quick Follow-ups:**")
-        
-        # Add gradient button styling
-        st.markdown("""
-        <style>
-        .stButton > button {
-            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-            padding: 10px 20px;
-            margin: 5px 2px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-        .stButton > button:hover {
-            background: linear-gradient(45deg, #764ba2 0%, #667eea 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-        }
-        .stButton > button:focus {
-            background: linear-gradient(45deg, #5a67d8 0%, #6b46c1 100%);
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.5);
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Display suggestions in a grid (max 3 per row)
-        suggestions = st.session_state.static_followup_suggestions
-        for i in range(0, len(suggestions), 3):
-            cols = st.columns(3)
-            for j, (label, question, unique_id) in enumerate(suggestions[i:i+3]):
-                with cols[j]:
-                    if st.button(f"🎯 {label}", key=f"static_followup_{unique_id}", help=question, use_container_width=True):
-                        st.session_state.submitted_prompt = question
-                        st.success(f"🔄 Processing: {question}")
-                        st.rerun()
-
-def add_static_followup_suggestions(new_suggestions):
-    """
-    Add new follow-up suggestions to static storage, maintaining max of 15
-    """
-    # Add new suggestions to the beginning of the list
-    for suggestion in reversed(new_suggestions):
-        if suggestion not in st.session_state.static_followup_suggestions:
-            st.session_state.static_followup_suggestions.insert(0, suggestion)
-    
-    # Keep only the most recent 15 suggestions
-    st.session_state.static_followup_suggestions = st.session_state.static_followup_suggestions[:15]
-    
-    # Increment counter for unique IDs
-    st.session_state.followup_counter += 1
-
-def display_static_followup_buttons():
-    """
-    Display static follow-up buttons with gradient styling
-    """
-    if st.session_state.static_followup_suggestions:
-        st.markdown("**🎯 Quick Follow-ups:**")
-        
-        # Add gradient button styling
-        st.markdown("""
-        <style>
-        .stButton > button {
-            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-            padding: 10px 20px;
-            margin: 5px 2px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-        .stButton > button:hover {
-            background: linear-gradient(45deg, #764ba2 0%, #667eea 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
-        }
-        .stButton > button:focus {
-            background: linear-gradient(45deg, #5a67d8 0%, #6b46c1 100%);
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.5);
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Display suggestions in a grid (max 3 per row)
-        suggestions = st.session_state.static_followup_suggestions
-        for i in range(0, len(suggestions), 3):
-            cols = st.columns(3)
-            for j, (label, question, unique_id) in enumerate(suggestions[i:i+3]):
-                with cols[j]:
-                    if st.button(f"🎯 {label}", key=f"static_followup_{unique_id}", help=question, use_container_width=True):
-                        st.session_state.submitted_prompt = question
-                        st.success(f"🔄 Processing: {question}")
-                        st.rerun()
+    """Render persistent gradient follow-up suggestion buttons (max 15)."""
+    suggestions = st.session_state.get("static_followup_suggestions", [])
+    if not suggestions:
+        return
+    # Single injected CSS block (idempotent)
+    if 'followup_css_injected' not in st.session_state:
+        st.markdown(
+            """
+            <style>
+            .followup-grid {display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;}
+            .followup-grid .stButton>button {
+                background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+                color:#fff; border:none; border-radius:10px; padding:6px 12px;
+                font-size:0.82rem; font-weight:600; line-height:1.05; cursor:pointer;
+                box-shadow:0 2px 4px rgba(0,0,0,0.15); transition:all .18s ease;
+                white-space:nowrap;
+            }
+            .followup-grid .stButton>button:hover {transform:translateY(-2px); box-shadow:0 4px 10px rgba(0,0,0,0.25);}
+            .followup-grid .stButton>button:active {transform:translateY(0); box-shadow:0 1px 2px rgba(0,0,0,0.2);}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        st.session_state.followup_css_injected = True
+    st.markdown("**🎯 Quick Follow-ups (click to ask):**")
+    # Render in rows of up to 5 buttons
+    for i in range(0, len(suggestions), 5):
+        row = suggestions[i:i+5]
+        cols = st.columns(len(row))
+        for col, (label, question, unique_id) in zip(cols, row):
+            with col:
+                if st.button(label, key=f"static_follow_{unique_id}"):
+                    st.session_state.submitted_prompt = question
+                    st.experimental_rerun()
 
 def enhance_analysis_context(query, player_data=None, team_data=None):
     """
@@ -1590,22 +1521,14 @@ if st.session_state.get('submitted_prompt'):
                     
                     # Enhanced Smart follow-up suggestions for direct LLM responses
                     st.markdown("---")
-                    st.markdown("### � Continue Your Analysis")
-                    
+                    st.markdown("### 🔄 Continue Your Analysis")
                     smart_suggestions = generate_smart_followup_suggestions(
                         current_question, response_text, st.session_state.last_analysis_data
                     )
-                    
+                    # Persist & display static suggestion system
                     if smart_suggestions:
-                        st.markdown("**� Quick Follow-ups:**")
-                        
-                        # Create a more attractive button layout
-                        cols = st.columns(len(smart_suggestions))
-                        # Add new suggestions to static storage
                         add_static_followup_suggestions(smart_suggestions)
-                        
-                        # Display static follow-up buttons
-                        display_static_followup_buttons()
+                    display_static_followup_buttons()
                     
                     # Custom follow-up input
                     follow_up_question = st.text_input(
@@ -1682,7 +1605,7 @@ if st.session_state.get('submitted_prompt'):
                 "- For in-depth player analysis → use `get_comprehensive_player_analysis`\n"
                 "- For ENHANCED analysis with projections/rankings → use `get_enhanced_player_analysis_with_csv`\n"
                 "- For team statistics and analysis → use `get_team_statistics` (most comprehensive)\n"
-                "- For weekly data (week 1, week 2, etc.) → use `get_nfl_games` with week filters\n"
+                "- For weekly data (week   1, week 2, etc.) → use `get_nfl_games` with week filters\n"
                 "- For team comparisons → use `get_team_statistics` for each team\n"
                 "- For team information only → use `get_nfl_teams`\n"
                 "- For standings/rankings → use `get_nfl_standings`\n"
@@ -1995,25 +1918,13 @@ if st.session_state.get('submitted_prompt'):
                                 
                                 # Enhanced Smart follow-up suggestions based on content
                                 st.markdown("---")
-                                st.markdown("### � Continue Your Analysis")
-                                
+                                st.markdown("### 🔄 Continue Your Analysis")
                                 smart_suggestions = generate_smart_followup_suggestions(
                                     processed_prompt, response_text, st.session_state.last_analysis_data
                                 )
-                                
                                 if smart_suggestions:
-                                    st.markdown("**� Instant Follow-ups:**")
-                                    cols = st.columns(len(smart_suggestions))
-                                    # Add new suggestions to static storage
                                     add_static_followup_suggestions(smart_suggestions)
-                                    
-                                    # Display static follow-up buttons
-                                    display_static_followup_buttons()
-                                        with cols[i]:
-                                            if st.button(f"🎯 {label}", key=f"smart_followup_{i}", help=question, use_container_width=True):
-                                                st.session_state.submitted_prompt = question
-                                                st.success(f"� Analyzing: {question}")
-                                                st.rerun()
+                                display_static_followup_buttons()
                                 
                                 # Enhanced custom follow-up input
                                 st.markdown("**💭 Or ask something specific:**")
@@ -2028,7 +1939,7 @@ if st.session_state.get('submitted_prompt'):
                                 
                                 col1, col2, col3 = st.columns([2, 2, 1])
                                 with col1:
-                                    if st.button("� Analyze This", key="follow_up_submit", type="primary", use_container_width=True):
+                                    if st.button("🔍 Analyze This", key="follow_up_submit", type="primary", use_container_width=True):
                                         if follow_up_question:
                                             st.session_state.submitted_prompt = follow_up_question
                                             st.success(f"🔄 Analyzing: {follow_up_question[:50]}...")
