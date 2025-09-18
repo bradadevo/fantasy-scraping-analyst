@@ -85,6 +85,10 @@ if 'conversation_context' not in st.session_state:
     st.session_state.conversation_context = ""
 if 'follow_up_mode' not in st.session_state:
     st.session_state.follow_up_mode = False
+if 'static_followup_suggestions' not in st.session_state:
+    st.session_state.static_followup_suggestions = []
+if 'followup_counter' not in st.session_state:
+    st.session_state.followup_counter = 0
 
 def rate_limit_decorator(func):
     """Decorator to enforce rate limiting of 60 requests per minute"""
@@ -771,6 +775,126 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
         return f"Error generating response: {str(e)}"
 
 # Generate intelligent follow-up suggestions based on analysis content
+def add_static_followup_suggestions(new_suggestions):
+    """
+    Add new follow-up suggestions to static storage, maintaining max of 15
+    """
+    # Add new suggestions to the beginning of the list
+    for suggestion in reversed(new_suggestions):
+        if suggestion not in st.session_state.static_followup_suggestions:
+            st.session_state.static_followup_suggestions.insert(0, suggestion)
+    
+    # Keep only the most recent 15 suggestions
+    st.session_state.static_followup_suggestions = st.session_state.static_followup_suggestions[:15]
+    
+    # Increment counter for unique IDs
+    st.session_state.followup_counter += 1
+
+def display_static_followup_buttons():
+    """
+    Display static follow-up buttons with gradient styling
+    """
+    if st.session_state.static_followup_suggestions:
+        st.markdown("**🎯 Quick Follow-ups:**")
+        
+        # Add gradient button styling
+        st.markdown("""
+        <style>
+        .stButton > button {
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+            padding: 10px 20px;
+            margin: 5px 2px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .stButton > button:hover {
+            background: linear-gradient(45deg, #764ba2 0%, #667eea 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+        .stButton > button:focus {
+            background: linear-gradient(45deg, #5a67d8 0%, #6b46c1 100%);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.5);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Display suggestions in a grid (max 3 per row)
+        suggestions = st.session_state.static_followup_suggestions
+        for i in range(0, len(suggestions), 3):
+            cols = st.columns(3)
+            for j, (label, question, unique_id) in enumerate(suggestions[i:i+3]):
+                with cols[j]:
+                    if st.button(f"🎯 {label}", key=f"static_followup_{unique_id}", help=question, use_container_width=True):
+                        st.session_state.submitted_prompt = question
+                        st.success(f"🔄 Processing: {question}")
+                        st.rerun()
+
+def add_static_followup_suggestions(new_suggestions):
+    """
+    Add new follow-up suggestions to static storage, maintaining max of 15
+    """
+    # Add new suggestions to the beginning of the list
+    for suggestion in reversed(new_suggestions):
+        if suggestion not in st.session_state.static_followup_suggestions:
+            st.session_state.static_followup_suggestions.insert(0, suggestion)
+    
+    # Keep only the most recent 15 suggestions
+    st.session_state.static_followup_suggestions = st.session_state.static_followup_suggestions[:15]
+    
+    # Increment counter for unique IDs
+    st.session_state.followup_counter += 1
+
+def display_static_followup_buttons():
+    """
+    Display static follow-up buttons with gradient styling
+    """
+    if st.session_state.static_followup_suggestions:
+        st.markdown("**🎯 Quick Follow-ups:**")
+        
+        # Add gradient button styling
+        st.markdown("""
+        <style>
+        .stButton > button {
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+            padding: 10px 20px;
+            margin: 5px 2px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .stButton > button:hover {
+            background: linear-gradient(45deg, #764ba2 0%, #667eea 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+        .stButton > button:focus {
+            background: linear-gradient(45deg, #5a67d8 0%, #6b46c1 100%);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.5);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Display suggestions in a grid (max 3 per row)
+        suggestions = st.session_state.static_followup_suggestions
+        for i in range(0, len(suggestions), 3):
+            cols = st.columns(3)
+            for j, (label, question, unique_id) in enumerate(suggestions[i:i+3]):
+                with cols[j]:
+                    if st.button(f"🎯 {label}", key=f"static_followup_{unique_id}", help=question, use_container_width=True):
+                        st.session_state.submitted_prompt = question
+                        st.success(f"🔄 Processing: {question}")
+                        st.rerun()
+
 def enhance_analysis_context(query, player_data=None, team_data=None):
     """
     Automatically gather additional context based on the user's query to provide richer analysis
@@ -819,6 +943,7 @@ def enhance_analysis_context(query, player_data=None, team_data=None):
 def generate_smart_followup_suggestions(question, response_text, analysis_data):
     """
     Generate contextual follow-up suggestions based on the actual analysis content
+    Returns list of (label, question, unique_id) tuples
     """
     question_lower = question.lower()
     response_lower = response_text.lower() if response_text else ""
@@ -829,35 +954,40 @@ def generate_smart_followup_suggestions(question, response_text, analysis_data):
     if any(term in question_lower for term in ['stats', 'statistics', 'performance']):
         # For statistical queries
         if 'fantasy' not in response_lower:
-            suggestions.append(("🏆 Fantasy Impact", "How do these stats translate to fantasy value?"))
-        suggestions.append(("📈 Trend Analysis", "What trends do you see in these numbers?"))
-        suggestions.append(("🎯 Context", "How do these stats compare to league average?"))
+            suggestions.append(("🏆 Fantasy Impact", "How do these stats translate to fantasy value?", "fantasy_impact"))
+        suggestions.append(("📈 Trend Analysis", "What trends do you see in these numbers?", "trend_analysis"))
+        suggestions.append(("🎯 Context", "How do these stats compare to league average?", "context_compare"))
         
     elif any(term in question_lower for term in ['compare', 'vs', 'versus']):
         # For comparison queries
-        suggestions.append(("💡 Key Differences", "What are the most important differences between them?"))
-        suggestions.append(("🏆 Better Choice", "Who would you recommend and why?"))
-        suggestions.append(("📊 Advanced Metrics", "Compare their advanced analytics and efficiency"))
+        suggestions.append(("💡 Key Differences", "What are the most important differences between them?", "key_differences"))
+        suggestions.append(("🏆 Better Choice", "Who would you recommend and why?", "better_choice"))
+        suggestions.append(("📊 Advanced Metrics", "Compare their advanced analytics and efficiency", "advanced_metrics"))
         
     elif any(term in question_lower for term in ['team', 'chiefs', 'bills', 'patriots']):
         # For team queries
-        suggestions.append(("⭐ Key Players", "Who are the most important players on this team?"))
-        suggestions.append(("🎯 Strengths/Weaknesses", "What are this team's biggest strengths and weaknesses?"))
-        suggestions.append(("📅 Schedule Impact", "How might their schedule affect performance?"))
+        suggestions.append(("⭐ Key Players", "Who are the most important players on this team?", "key_players"))
+        suggestions.append(("🎯 Strengths/Weaknesses", "What are this team's biggest strengths and weaknesses?", "strengths_weaknesses"))
+        suggestions.append(("📅 Schedule Impact", "How might their schedule affect performance?", "schedule_impact"))
         
     else:
         # General suggestions based on response content
         if any(stat in response_lower for stat in ['yards', 'touchdowns', 'passing', 'rushing']):
-            suggestions.append(("🏆 Fantasy Outlook", "What's the fantasy football perspective on this?"))
-            suggestions.append(("📈 Season Projection", "How might this trend continue this season?"))
+            suggestions.append(("🏆 Fantasy Outlook", "What's the fantasy football perspective on this?", "fantasy_outlook"))
+            suggestions.append(("📈 Season Projection", "How might this trend continue this season?", "season_projection"))
         
         if 'injury' not in response_lower and 'health' not in response_lower:
-            suggestions.append(("⚕️ Health Status", "Any injury concerns or health factors to consider?"))
+            suggestions.append(("⚕️ Health Status", "Any injury concerns or health factors to consider?", "health_status"))
         
-        suggestions.append(("🎯 Bottom Line", "What's the most important takeaway from this analysis?"))
+        suggestions.append(("🎯 Bottom Line", "What's the most important takeaway from this analysis?", "bottom_line"))
     
-    # Limit to 3 most relevant suggestions
-    return suggestions[:3]
+    # Limit to 3 most relevant suggestions and add unique counter
+    result = []
+    for i, (label, question, base_id) in enumerate(suggestions[:3]):
+        unique_id = f"{base_id}_{st.session_state.followup_counter}_{i}"
+        result.append((label, question, unique_id))
+    
+    return result
 
 # --- Function Definitions ---
 @api_error_handler("teams")
@@ -1471,27 +1601,13 @@ if st.session_state.get('submitted_prompt'):
                         
                         # Create a more attractive button layout
                         cols = st.columns(len(smart_suggestions))
-                        for i, (label, question) in enumerate(smart_suggestions):
-                            with cols[i]:
-                                # Use custom styling for better buttons
-                                button_style = """
-                                <style>
-                                div[data-testid="column"] > div > div > button {
-                                    width: 100%;
-                                    border-radius: 10px;
-                                    border: 2px solid #4CAF50;
-                                    background: linear-gradient(45deg, #4CAF50, #45a049);
-                                    color: white;
-                                    font-weight: bold;
-                                    padding: 10px;
-                                    margin: 5px 0;
-                                }
-                                </style>
-                                """
-                                if st.button(f"🎯 {label}", key=f"direct_smart_followup_{i}", help=question, use_container_width=True):
-                                    st.session_state.submitted_prompt = question
-                                    st.success(f"🔄 Processing: {question}")
-                                    st.rerun()                    # Custom follow-up input
+                        # Add new suggestions to static storage
+                        add_static_followup_suggestions(smart_suggestions)
+                        
+                        # Display static follow-up buttons
+                        display_static_followup_buttons()
+                    
+                    # Custom follow-up input
                     follow_up_question = st.text_input(
                         "Or ask your own question:",
                         placeholder="Ask for more details, comparisons, explanations...",
@@ -1500,7 +1616,7 @@ if st.session_state.get('submitted_prompt'):
                     
                     col1, col2 = st.columns([3, 1])
                     with col1:
-                        if st.button("🔍 Ask Follow-up", key="followup_direct_submit", type="primary"):
+                        if st.button("🔍 Ask Follow-up", key="followup_direct_submit", type="primary", use_container_width=True):
                             if follow_up_question:
                                 st.session_state.submitted_prompt = follow_up_question
                                 st.rerun()
@@ -1508,13 +1624,15 @@ if st.session_state.get('submitted_prompt'):
                                 st.warning("Please enter a follow-up question first.")
                     
                     with col2:
-                        if st.button("🔄 New Analysis", key="new_analysis_direct"):
+                        if st.button("🆕 New Analysis", key="new_analysis_direct", use_container_width=True):
                             # Clear conversation history and start fresh
                             st.session_state.conversation_history = []
                             st.session_state.last_analysis_data = None
                             st.session_state.follow_up_mode = False
                             st.session_state.submitted_prompt = ""
                             st.session_state.selected_prompt = ""
+                            st.session_state.static_followup_suggestions = []
+                            st.session_state.followup_counter = 0
                             st.rerun()
                     
                     st.stop()  # Stop here for direct LLM responses
@@ -1886,7 +2004,11 @@ if st.session_state.get('submitted_prompt'):
                                 if smart_suggestions:
                                     st.markdown("**� Instant Follow-ups:**")
                                     cols = st.columns(len(smart_suggestions))
-                                    for i, (label, question) in enumerate(smart_suggestions):
+                                    # Add new suggestions to static storage
+                                    add_static_followup_suggestions(smart_suggestions)
+                                    
+                                    # Display static follow-up buttons
+                                    display_static_followup_buttons()
                                         with cols[i]:
                                             if st.button(f"🎯 {label}", key=f"smart_followup_{i}", help=question, use_container_width=True):
                                                 st.session_state.submitted_prompt = question
