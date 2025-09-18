@@ -666,62 +666,74 @@ def api_error_handler(func_name):
 def classify_followup_question(question, conversation_history, last_analysis_data):
     """
     Classify whether a follow-up question needs new API data or can be answered 
-    with existing data + LLM knowledge
+    with existing data + LLM knowledge. Uses intelligent pattern detection.
     """
     question_lower = question.lower()
     
-    # Keywords that typically require new API data
-    api_keywords = [
-        # New player/team names that weren't in previous analysis
-        'compare', 'vs', 'versus',  # if comparing to NEW entities
-        'latest', 'recent', 'current', 'today', 'this week',
-        'injury report', 'roster', 'depth chart',
-        'schedule', 'upcoming games', 'next game',
-        'standings', 'rankings', 'league leaders'
+    # Conceptual/Analysis questions that can use existing context (LLM-safe)
+    conceptual_patterns = [
+        r'\b(explain|why|how|what does|meaning|analysis|breakdown)\b',
+        r'\b(opinion|think|better|worse|recommend|advice)\b',
+        r'\b(strategy|approach|trend|pattern|insight)\b',
+        r'\b(summarize|key takeaway|main point|overview)\b',
+        r'\b(strength|weakness|advantage|disadvantage)\b',
+        r'\b(fantasy|draft|start|sit|bench|lineup)\b.*\b(advice|recommendation|opinion)\b'
     ]
     
-    # Keywords that can be answered with existing data + LLM
-    llm_keywords = [
-        'explain', 'why', 'how', 'what does', 'meaning', 'analysis',
-        'opinion', 'think', 'better', 'worse', 'recommend',
-        'fantasy', 'draft', 'start', 'sit', 'bench',
-        'strength', 'weakness', 'trend', 'pattern',
-        'breakdown', 'details', 'insights', 'takeaway'
+    # Data-specific questions that need fresh API calls
+    data_specific_patterns = [
+        r'\b(how many|total|average|per game|season|career)\b',
+        r'\b\d+\s*(yard|touchdown|point|completion|attempt|carry|target|reception)\b',
+        r'\b(stat|statistic|number|score|rating|rank)\b',
+        r'\b(compare|vs|versus|against)\b.*\b[A-Z][a-z]+ [A-Z][a-z]+\b',  # Compare [Player Name]
+        r'\b(latest|recent|current|today|this week|last week|week \d+)\b',
+        r'\b(injury|status|report|update|news)\b',
+        r'\b(schedule|game|matchup|opponent)\b',
+        r'\b(standing|ranking|leader|top \d+)\b',
+        r'\b(roster|depth chart|lineup|starter)\b'
     ]
     
-    # Check if question mentions new player/team names not in previous data
-    if last_analysis_data:
-        # Extract names from previous data (simple heuristic)
-        prev_data_str = str(last_analysis_data).lower()
-        
-        # Common NFL player/team patterns that might indicate new entities
-        new_entity_patterns = [
-            r'\b[A-Z][a-z]+ [A-Z][a-z]+\b',  # First Last (player names)
-            r'\b(chiefs|bills|patriots|dolphins|jets|ravens|bengals|browns|steelers|titans|colts|jaguars|texans|broncos|chargers|raiders|49ers|seahawks|rams|cardinals|cowboys|giants|eagles|commanders|packers|bears|lions|vikings|falcons|panthers|saints|buccaneers)\b'
-        ]
-        
-        # If question contains names/teams not in previous analysis, might need API
-        question_entities = set(re.findall(r'\b[A-Z][a-z]+\b', question))
-        prev_entities = set(re.findall(r'\b[A-Z][a-z]+\b', prev_data_str))
-        
-        if question_entities - prev_entities:
-            # New entities detected, check if it's a comparison
-            if any(keyword in question_lower for keyword in ['compare', 'vs', 'versus']):
-                return "api_needed"
+    # Check for conceptual patterns first
+    for pattern in conceptual_patterns:
+        if re.search(pattern, question_lower):
+            # Double-check it's not also asking for specific data
+            has_data_request = any(re.search(data_pattern, question_lower) for data_pattern in data_specific_patterns)
+            if not has_data_request:
+                return "llm_direct"
     
-    # Check for explicit API-requiring keywords
-    if any(keyword in question_lower for keyword in api_keywords):
+    # Check for data-specific patterns
+    for pattern in data_specific_patterns:
+        if re.search(pattern, question_lower):
+            return "api_needed"
+    
+    # Player name detection - if question mentions specific players, likely needs data
+    player_names = re.findall(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', question)
+    if player_names:
+        # If it's asking about players AND doesn't match conceptual patterns, needs API
         return "api_needed"
     
-    # Check for LLM-answerable keywords
-    if any(keyword in question_lower for keyword in llm_keywords):
-        return "llm_direct"
+    # Team name detection
+    nfl_teams = [
+        'chiefs', 'bills', 'patriots', 'dolphins', 'jets', 'ravens', 'bengals', 
+        'browns', 'steelers', 'titans', 'colts', 'jaguars', 'texans', 'broncos', 
+        'chargers', 'raiders', '49ers', 'seahawks', 'rams', 'cardinals', 'cowboys', 
+        'giants', 'eagles', 'commanders', 'packers', 'bears', 'lions', 'vikings', 
+        'falcons', 'panthers', 'saints', 'buccaneers'
+    ]
     
-    # Default: if we have previous analysis data, try LLM first
-    if last_analysis_data:
-        return "llm_direct"
-    else:
+    if any(team in question_lower for team in nfl_teams):
+        # If asking about specific teams, likely needs current data
         return "api_needed"
+    
+    # If we have rich previous analysis context, allow LLM for general questions
+    if last_analysis_data and len(str(last_analysis_data)) > 500:
+        # Check if question is general enough to be answered with context
+        general_question_words = ['what', 'how', 'why', 'should', 'would', 'could', 'best', 'good']
+        if any(word in question_lower for word in general_question_words):
+            return "llm_direct"
+    
+    # Default to API for safety (when in doubt, get fresh data)
+    return "api_needed"
 
 # Direct LLM response for follow-up questions
 def generate_direct_llm_response(question, conversation_history, last_analysis_data):
@@ -746,34 +758,34 @@ def generate_direct_llm_response(question, conversation_history, last_analysis_d
         
         # Create focused prompt for direct LLM response
         direct_prompt = f"""
-        You are an expert NFL analyst providing COMPREHENSIVE and INSIGHTFUL follow-up analysis. The user has asked a follow-up question that can be answered using existing context and your knowledge, without needing new API data.
+        You are an expert NFL analyst providing follow-up analysis based on existing context and general NFL knowledge.
         
         {context}
         {enhanced_query_context}
         
         USER'S FOLLOW-UP QUESTION: "{question}"
         
-        Please provide a comprehensive answer using:
-        1. The context from previous analysis data
-        2. Your knowledge of NFL players, teams, and strategies
-        3. Fantasy football insights where relevant
-        4. Statistical context and comparative analysis
+        ANALYSIS APPROACH:
+        ✅ Use data from the provided context when available
+        ✅ Apply general NFL knowledge for conceptual analysis
+        ✅ Provide strategic insights and explanations
+        ✅ Give fantasy football advice based on context
+        ✅ Explain trends, patterns, and implications
+        ✅ Use general NFL facts (rules, strategies, typical performance ranges)
         
-        ANALYSIS REQUIREMENTS:
-        📊 STATISTICAL DEPTH: Reference specific numbers from context, provide percentile rankings
-        📈 TREND ANALYSIS: Identify patterns and trajectory indicators from existing data
-        🏈 CONTEXTUAL INSIGHTS: Connect individual performance to team schemes and situations
-        🎯 ACTIONABLE ADVICE: Provide specific, actionable recommendations with rationale
-        📊 COMPARATIVE FRAMEWORK: Compare to peers, averages, and benchmarks when possible
+        ⚠️ IMPORTANT LIMITATIONS:
+        - When referencing specific current stats, always note "based on previous analysis"
+        - If asked for very specific current data not in context, recommend getting fresh data
+        - Don't invent exact numbers unless they're from the provided context
         
-        Format your response with:
-        - Clear headings with emojis
-        - Bullet points for key insights
-        - Tables if comparing data points
-        - Professional analysis tone
-        - Specific numbers and statistics from context
+        RESPONSE GUIDELINES:
+        📊 Reference context data when available
+        🏈 Apply NFL expertise for strategic analysis  
+        💡 Provide actionable insights and recommendations
+        📈 Explain performance implications and trends
+        🎯 Give fantasy-relevant advice when appropriate
         
-        Focus on answering the specific question while providing deeper insights that go beyond surface-level analysis.
+        Format with clear sections and professional analysis. Start with: "**Analysis based on available context:**"
         """
         
         # Initialize the model
@@ -1511,10 +1523,6 @@ if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_p
     )
 
     if is_followup_context:
-        st.write("🔧 DEBUG: Entered follow-up handling block")
-        st.write(f"🔧 DEBUG: Submitted prompt: {st.session_state.submitted_prompt}")
-        st.write(f"🔧 DEBUG: Conversation length: {len(st.session_state.conversation_history)}")
-
         try:
             question_type = classify_followup_question(
                 st.session_state.submitted_prompt,
@@ -1522,18 +1530,15 @@ if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_p
                 st.session_state.last_analysis_data
             )
         except Exception as e:
-            st.warning(f"Follow-up classification failed, defaulting to LLM: {e}")
+            st.error(f"⚠️ Follow-up classification failed, defaulting to LLM response: {e}")
             question_type = "llm_direct"
-
-        st.write(f"🔧 DEBUG: Classified follow-up type = {question_type}")
 
         # Fallback to LLM if unknown classification
         if question_type not in ("llm_direct", "api_needed"):
-            st.write("🔧 DEBUG: Unknown question_type, forcing llm_direct")
+            st.warning(f"⚠️ Unknown question type '{question_type}', using LLM response")
             question_type = "llm_direct"
 
         if question_type == "llm_direct":
-            st.write("🔧 DEBUG: Routing to direct LLM follow-up")
             try:
                 with st.spinner("💭 Analyzing with existing context..."):
                     # Helper function for styled containers
@@ -1614,16 +1619,14 @@ if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_p
                     
                     st.stop()  # Stop here for direct LLM responses
             except Exception as e:
-                st.error(f"Error in direct LLM follow-up: {e}")
-                st.info("Falling back to API analysis path...")
+                st.error(f"⚠️ Error in direct LLM follow-up: {e}")
+                st.info("🔄 Falling back to fresh API analysis...")
                 # Allow fall-through to API path
         elif question_type == "api_needed":
-            st.write("🔧 DEBUG: Follow-up requires fresh API data -> deferring to API pipeline")
             # Do nothing; allow fall-through to API processing below
+            pass
     
     # Normal API processing (for new questions or when direct LLM fails)
-    st.write("🔧 DEBUG: Entering main API processing pipeline")
-    st.write(f"🔧 DEBUG: Processing prompt: {st.session_state.submitted_prompt}")
     st.write("🔧 DEBUG: Entering main API processing pipeline")
     st.write(f"🔧 DEBUG: Processing prompt: {st.session_state.submitted_prompt}")
     with st.spinner("🔍 Fetching fresh data and analyzing..."):
