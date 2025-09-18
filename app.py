@@ -342,7 +342,7 @@ st.markdown("""
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
     }
     
-    /* Enhanced button styling */
+    /* Enhanced button styling - Apply gradients to ALL buttons */
     .stButton > button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -357,6 +357,36 @@ st.markdown("""
     .stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    }
+    
+    /* Follow-up suggestion buttons */
+    .stButton > button[data-testid*="followup"] {
+        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%);
+        color: #333;
+        font-size: 0.9em;
+        padding: 8px 16px;
+        margin: 4px 2px;
+        border-radius: 20px;
+        min-height: auto;
+        height: auto;
+    }
+    
+    .stButton > button[data-testid*="followup"]:hover {
+        background: linear-gradient(135deg, #fecfef 0%, #ff9a9e 100%);
+        transform: translateY(-1px) scale(1.02);
+    }
+    
+    /* Secondary action buttons */
+    .stButton > button[kind="secondary"] {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        color: #333;
+        border: 1px solid rgba(102, 126, 234, 0.3);
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background: linear-gradient(135deg, #fed6e3 0%, #a8edea 100%);
+        border: 1px solid rgba(102, 126, 234, 0.5);
     }
     
     /* Special styling for the Analyze button */
@@ -1168,7 +1198,8 @@ def get_player_stats_from_api(firstName: str, lastName: str, include_stats: bool
                     for player in data['data']:
                         player_first = player.get('first_name', '').lower()
                         player_last = player.get('last_name', '').lower()
-                        
+
+                        # Exact match heuristic (substring both ways to allow minor abbreviation usage)
                         if (firstName.lower() in player_first or player_first in firstName.lower()) and \
                            (lastName.lower() in player_last or player_last in lastName.lower()):
                             exact_matches.append(player)
@@ -1466,22 +1497,45 @@ if st.session_state.follow_up_mode and st.session_state.last_analysis_data:
     
     st.markdown("---")
 
-# Only process when user has submitted a query
-if st.session_state.get('submitted_prompt'):
-    
-    # Determine response strategy
-    if st.session_state.follow_up_mode and st.session_state.conversation_history:
-        # Classify the follow-up question
-        question_type = classify_followup_question(
-            st.session_state.submitted_prompt,
-            st.session_state.conversation_history,
-            st.session_state.last_analysis_data
-        )
-        
+""" FOLLOW-UP / PRIMARY QUERY ROUTER """
+# Normalize empty whitespace-only prompt
+if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_prompt).strip():
+    # Auto-enable follow-up mode after at least one conversation entry
+    if not st.session_state.follow_up_mode and st.session_state.conversation_history:
+        st.session_state.follow_up_mode = True
+
+    is_followup_context = (
+        st.session_state.follow_up_mode and 
+        bool(st.session_state.conversation_history) and 
+        st.session_state.last_analysis_data is not None
+    )
+
+    if is_followup_context:
+        st.write("🔧 DEBUG: Entered follow-up handling block")
+        st.write(f"🔧 DEBUG: Submitted prompt: {st.session_state.submitted_prompt}")
+        st.write(f"🔧 DEBUG: Conversation length: {len(st.session_state.conversation_history)}")
+
+        try:
+            question_type = classify_followup_question(
+                st.session_state.submitted_prompt,
+                st.session_state.conversation_history,
+                st.session_state.last_analysis_data
+            )
+        except Exception as e:
+            st.warning(f"Follow-up classification failed, defaulting to LLM: {e}")
+            question_type = "llm_direct"
+
+        st.write(f"🔧 DEBUG: Classified follow-up type = {question_type}")
+
+        # Fallback to LLM if unknown classification
+        if question_type not in ("llm_direct", "api_needed"):
+            st.write("🔧 DEBUG: Unknown question_type, forcing llm_direct")
+            question_type = "llm_direct"
+
         if question_type == "llm_direct":
-            # Handle with direct LLM response
-            with st.spinner("💭 Analyzing with existing context..."):
-                try:
+            st.write("🔧 DEBUG: Routing to direct LLM follow-up")
+            try:
+                with st.spinner("💭 Analyzing with existing context..."):
                     # Helper function for styled containers
                     def styled_container(content, gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)", extra_style=""):
                         return f"""<div style="background: {gradient}; padding: 20px; border-radius: 15px; margin: 20px 0; text-align: center; color: white; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1); {extra_style}">{content}</div>"""
@@ -1559,13 +1613,19 @@ if st.session_state.get('submitted_prompt'):
                             st.rerun()
                     
                     st.stop()  # Stop here for direct LLM responses
-                    
-                except Exception as e:
-                    st.error(f"Error in direct LLM response: {e}")
-                    st.info("Falling back to full API analysis...")
-                    # Fall through to normal API processing
+            except Exception as e:
+                st.error(f"Error in direct LLM follow-up: {e}")
+                st.info("Falling back to API analysis path...")
+                # Allow fall-through to API path
+        elif question_type == "api_needed":
+            st.write("🔧 DEBUG: Follow-up requires fresh API data -> deferring to API pipeline")
+            # Do nothing; allow fall-through to API processing below
     
     # Normal API processing (for new questions or when direct LLM fails)
+    st.write("🔧 DEBUG: Entering main API processing pipeline")
+    st.write(f"🔧 DEBUG: Processing prompt: {st.session_state.submitted_prompt}")
+    st.write("🔧 DEBUG: Entering main API processing pipeline")
+    st.write(f"🔧 DEBUG: Processing prompt: {st.session_state.submitted_prompt}")
     with st.spinner("🔍 Fetching fresh data and analyzing..."):
         try:
             # Build conversation context
@@ -1591,11 +1651,6 @@ if st.session_state.get('submitted_prompt'):
                 "- `get_player_stats_from_api` - Basic player info, team, position, and stats\n"
                 "- `get_player_stats_only` - Just statistical data for a player\n" 
                 "- `get_comprehensive_player_analysis` - Complete analysis including season stats, advanced metrics, injury status, and team info\n"
-                "- `get_enhanced_player_analysis_with_csv` - MOST COMPREHENSIVE: Combines API data with CSV data (projections, rankings, advanced metrics)\n"
-                "\n"
-                "TEAM & LEAGUE TOOLS:\n"
-                "- `get_nfl_teams` - Get team information, filter by division or conference\n"
-                "- `get_team_statistics` - Get comprehensive team statistics (RECOMMENDED for team analysis)\n"
                 "- `get_nfl_standings` - Get standings for any season\n"
                 "- `get_nfl_season_stats` - Comprehensive season statistics with filtering\n"
                 "- `get_nfl_games` - Get game schedules, matchups, and weekly game data\n"
