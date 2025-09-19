@@ -4,3 +4,10 @@ requests
 pandas
 mcp[http]
 mcp
+torch
+transformers
+datasets
+scikit-learn
+tensorboard
+accelerate
+statsmodels
