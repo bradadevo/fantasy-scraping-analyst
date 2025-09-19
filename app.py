@@ -8,9 +8,17 @@ import os
 import re
 from datetime import datetime, timedelta
 from functools import wraps
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from datasets import load_dataset
+import logging
 
 # Use the stable google-generativeai library
 import google.generativeai as genai
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
 # --- SETUP API KEYS FROM STREAMLIT SECRETS ---
 try:
@@ -37,9 +45,43 @@ try:
     
     # Test the API key by making a simple call
     try:
-        test_model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        # This will fail quickly if the API key is invalid
+        model = genai.GenerativeModel('gemini-pro')
+        
+        def get_gemini_response(prompt, context=None):
+            """
+            Get response from Gemini model with context management
+            """
+            try:
+                # Build full prompt with context
+                if context:
+                    full_prompt = f"{context}\n\nCurrent question: {prompt}"
+                else:
+                    full_prompt = prompt
+                
+                # Add system prompt for consistent behavior
+                system_prompt = """You are a fantasy sports analysis assistant. Use the provided context and conversation history to give accurate, relevant answers. If referencing previous interactions, be explicit about what you're referring to. If you need clarification, ask for it."""
+                
+                full_prompt = f"{system_prompt}\n\n{full_prompt}"
+                
+                # Generate response
+                response = model.generate_content(full_prompt)
+                
+                if response.text:
+                    # Update conversation history
+                    update_conversation_history(prompt, response.text)
+                    # Set follow-up mode for next question
+                    st.session_state.follow_up_mode = True
+                    return response.text
+                else:
+                    return "I apologize, but I couldn't generate a response. Please try rephrasing your question."
+            
+            except Exception as e:
+                logging.error(f"Error generating response: {str(e)}")
+                return f"An error occurred: {str(e)}"
+        
         st.session_state.gemini_api_valid = True
+        st.session_state.get_gemini_response = get_gemini_response
+    
     except Exception as api_test_error:
         st.error(f"🚫 **Invalid Gemini API Key**: {str(api_test_error)}")
         st.info("""
@@ -70,6 +112,179 @@ if 'selected_prompt' not in st.session_state:
 if 'submitted_prompt' not in st.session_state:
     st.session_state.submitted_prompt = ""
 
+if 'model_training_status' not in st.session_state:
+    st.session_state.model_training_status = None
+
+# Initialize conversation management state
+if 'conversation_history' not in st.session_state:
+    st.session_state.conversation_history = []
+
+if 'current_context' not in st.session_state:
+    st.session_state.current_context = {
+        'data': None,  # Store the current data being analyzed
+        'last_question': None,  # Store the last question asked
+        'last_response': None,  # Store the last response received
+        'accumulated_context': []  # Store relevant context from previous interactions
+    }
+
+if 'follow_up_mode' not in st.session_state:
+    st.session_state.follow_up_mode = False
+
+if 'context_window_size' not in st.session_state:
+    st.session_state.context_window_size = 5  # Number of previous QA pairs to keep as context
+
+# --- CONVERSATION MANAGEMENT FUNCTIONS ---
+def update_conversation_history(question, response, data_context=None):
+    """
+    Update the conversation history and maintain context
+    """
+    # Add new QA pair to history
+    qa_pair = {
+        'question': question,
+        'response': response,
+        'timestamp': datetime.now(),
+        'data_context': data_context
+    }
+    st.session_state.conversation_history.append(qa_pair)
+    
+    # Trim history to maintain context window size
+    if len(st.session_state.conversation_history) > st.session_state.context_window_size:
+        st.session_state.conversation_history = st.session_state.conversation_history[-st.session_state.context_window_size:]
+
+def build_context_for_prompt(question):
+    """
+    Build context string for the current prompt using conversation history
+    """
+    context_parts = []
+    
+    # Add current data context if available
+    if st.session_state.current_context['data'] is not None:
+        context_parts.append("Current data context:")
+        context_parts.append(str(st.session_state.current_context['data']))
+    
+    # Add relevant conversation history
+    if st.session_state.conversation_history:
+        context_parts.append("\nPrevious conversation:")
+        for qa in st.session_state.conversation_history[-st.session_state.context_window_size:]:
+            context_parts.append(f"Q: {qa['question']}")
+            context_parts.append(f"A: {qa['response']}\n")
+    
+    # Add follow-up indicator if in follow-up mode
+    if st.session_state.follow_up_mode:
+        context_parts.append("This is a follow-up question to the previous conversation.")
+    
+    return "\n".join(context_parts)
+
+def clear_conversation():
+    """
+    Clear the conversation history and context
+    """
+    st.session_state.conversation_history = []
+    st.session_state.current_context = {
+        'data': None,
+        'last_question': None,
+        'last_response': None,
+        'accumulated_context': []
+    }
+    st.session_state.follow_up_mode = False
+
+# --- MODEL TRAINING INFRASTRUCTURE ---
+class FantasyDataset(Dataset):
+    def __init__(self, texts, tokenizer, max_length=512):
+        self.encodings = tokenizer(texts, truncation=True, padding=True, max_length=max_length, return_tensors="pt")
+
+    def __getitem__(self, idx):
+        item = {key: val[idx] for key, val in self.encodings.items()}
+        return item
+
+    def __len__(self):
+        return len(self.encodings.input_ids)
+
+def prepare_training_data(data_path):
+    """
+    Prepare data for training from CSV or other sources
+    """
+    try:
+        if data_path.endswith('.csv'):
+            df = pd.read_csv(data_path)
+            # Combine relevant columns for training
+            texts = df.apply(lambda x: ' '.join(x.dropna().astype(str)), axis=1).tolist()
+        else:
+            raise ValueError("Unsupported file format")
+        return texts
+    except Exception as e:
+        st.error(f"Error preparing training data: {str(e)}")
+        return None
+
+def evaluate_model(model, tokenizer, test_texts, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    """
+    Evaluate the trained model using perplexity and generate sample predictions
+    """
+    model.eval()
+    model.to(device)
+    total_loss = 0
+    num_samples = len(test_texts)
+    
+    with torch.no_grad():
+        for text in test_texts:
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            outputs = model(**inputs, labels=inputs["input_ids"])
+            total_loss += outputs.loss.item()
+    
+    perplexity = torch.exp(torch.tensor(total_loss / num_samples))
+    return perplexity.item()
+
+def train_model(training_args, model_name="gpt2", data_path=None):
+    """
+    Train a language model on fantasy sports data
+    """
+    try:
+        # Initialize model and tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_name)
+
+        # Prepare training data
+        if not data_path:
+            st.error("No training data provided")
+            return None
+
+        texts = prepare_training_data(data_path)
+        if not texts:
+            return None
+
+        # Create dataset
+        dataset = FantasyDataset(texts, tokenizer)
+
+        # Set up training arguments
+        training_args = TrainingArguments(
+            output_dir="./results",
+            num_train_epochs=3,
+            per_device_train_batch_size=4,
+            save_steps=1000,
+            save_total_limit=2,
+        )
+
+        # Initialize trainer
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=dataset,
+        )
+
+        # Train the model
+        trainer.train()
+
+        # Save the trained model
+        model.save_pretrained("./trained_model")
+        tokenizer.save_pretrained("./trained_model")
+
+        return True
+
+    except Exception as e:
+        st.error(f"Error during model training: {str(e)}")
+        return None
+
 if 'csv_data' not in st.session_state:
     st.session_state.csv_data = {}
 
@@ -89,6 +304,108 @@ if 'static_followup_suggestions' not in st.session_state:
     st.session_state.static_followup_suggestions = []
 if 'followup_counter' not in st.session_state:
     st.session_state.followup_counter = 0
+
+# --- MODEL TRAINING UI ---
+def show_model_training_section():
+    st.header("🎯 Train Custom LLM Model")
+    
+    with st.expander("Model Training Settings"):
+        model_name = st.selectbox(
+            "Base Model",
+            ["gpt2", "gpt2-medium", "gpt2-large"],
+            help="Select the base model to fine-tune"
+        )
+        
+        epochs = st.number_input("Number of Training Epochs", min_value=1, max_value=10, value=3)
+        batch_size = st.number_input("Batch Size", min_value=1, max_value=32, value=4)
+        
+        training_data = st.file_uploader(
+            "Upload Training Data (CSV)",
+            type=['csv'],
+            help="Upload a CSV file containing your training data"
+        )
+        
+        if st.button("Start Training"):
+            if training_data is None:
+                st.error("Please upload training data first!")
+            else:
+                # Save uploaded file temporarily
+                temp_path = "temp_training_data.csv"
+                with open(temp_path, "wb") as f:
+                    f.write(training_data.getvalue())
+                
+                training_args = TrainingArguments(
+                    output_dir="./results",
+                    num_train_epochs=epochs,
+                    per_device_train_batch_size=batch_size,
+                    save_steps=1000,
+                    save_total_limit=2,
+                )
+                
+                with st.spinner("Training model... This may take a while."):
+                    success = train_model(training_args, model_name, temp_path)
+                    if success:
+                        st.success("Model training completed! The model has been saved to ./trained_model")
+                    else:
+                        st.error("Model training failed. Please check the logs for details.")
+                
+                # Clean up
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+# --- UI COMPONENTS ---
+def render_conversation_history():
+    """
+    Render the conversation history in the Streamlit UI
+    """
+    if st.session_state.conversation_history:
+        st.write("### Conversation History")
+        for i, qa in enumerate(st.session_state.conversation_history):
+            with st.expander(f"Q: {qa['question'][:50]}...", expanded=(i == len(st.session_state.conversation_history) - 1)):
+                st.write("**Question:**")
+                st.write(qa['question'])
+                st.write("**Answer:**")
+                st.write(qa['response'])
+                if qa.get('data_context'):
+                    st.write("**Data Context:**")
+                    st.write(qa['data_context'])
+                st.write(f"*{qa['timestamp'].strftime('%I:%M %p')}*")
+
+def render_conversation_controls():
+    """
+    Render conversation control buttons
+    """
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Clear Conversation"):
+            clear_conversation()
+            st.experimental_rerun()
+    
+    with col2:
+        if st.button("📋 Copy Last Response"):
+            if st.session_state.conversation_history:
+                last_response = st.session_state.conversation_history[-1]['response']
+                st.write("Response copied to clipboard!")
+                st.experimental_set_query_params(clipboard=last_response)
+
+def handle_user_input(user_input, data_context=None):
+    """
+    Process user input and generate response
+    """
+    if user_input:
+        with st.spinner("Thinking... 🤔"):
+            # Build context for this question
+            context = build_context_for_prompt(user_input)
+            
+            # Get response from Gemini
+            response = st.session_state.get_gemini_response(user_input, context)
+            
+            # Update conversation state
+            if data_context:
+                st.session_state.current_context['data'] = data_context
+            
+            return response
+    return None
 
 def rate_limit_decorator(func):
     """Decorator to enforce rate limiting of 60 requests per minute"""
