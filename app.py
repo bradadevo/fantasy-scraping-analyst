@@ -900,11 +900,11 @@ st.markdown('''
     ">
 ''', unsafe_allow_html=True)
 
-# Compact main header
+# Main header
 st.markdown("""
 <div class="main-header">
-    <h2 style="margin: 0; font-size: 1.6em;">🏈 NFL Analytics Platform</h2>
-    <p style="margin: 4px 0 0 0; font-size: 0.9em; opacity: 0.9;">Player stats • Team analysis • Enhanced data insights</p>
+    <h2 style="margin: 0; font-size: 1.8em;">🏈 NFL Analytics Platform</h2>
+    <p style="margin: 8px 0 0 0; font-size: 1em; opacity: 0.9;">Player Stats • Team Analysis • Fantasy Insights</p>
 </div>
 """, unsafe_allow_html=True)
 
