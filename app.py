@@ -1769,28 +1769,20 @@ tool_declarations = [genai.protos.Tool(
 
 # Quick Search Options
 st.markdown('<div class="compact-section">', unsafe_allow_html=True)
-st.markdown("**⚡ Quick Searches** • Popular analysis examples")
-
-# Helper function for creating button sections
-def create_button_section(col, title, buttons):
-    with col:
-        st.markdown(f"**{title}**")
-        for label, prompt in buttons:
-            if st.button(label, key=f"{title.lower().replace(' ', '_')}_{label}", use_container_width=True):
-                st.session_state.selected_prompt = prompt
-                st.session_state.submitted_prompt = prompt
-                st.rerun()
+st.markdown("**⚡ Quick Actions** • Comparison and standings analysis")
 
 # Compact button grid
-col1, col2, col3, col4 = st.columns(4)
-button_groups = [
-    (col1, "� Star QBs", [("Mahomes", "Patrick Mahomes 2024 stats"), ("J.Allen", "Josh Allen performance"), ("L.Jackson", "Lamar Jackson analysis")]),
-    (col2, "🏈 Top Teams", [("Chiefs", "Kansas City Chiefs team stats"), ("Bills", "Buffalo Bills analysis"), ("vs Compare", "Bills vs Chiefs comparison")]),
-    (col3, "⭐ Skill Players", [("T.Hill", "Tyreek Hill receiving stats"), ("C.Kupp", "Cooper Kupp statistics"), ("A.Donald", "Aaron Donald performance")]),
-    (col4, "📊 League Data", [("AFC", "AFC standings 2024"), ("NFC", "NFC standings 2024"), ("Playoffs", "NFL playoff picture")])
-]
-for col, title, buttons in button_groups:
-    create_button_section(col, title, buttons)
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("vs Compare", key="vs_compare", use_container_width=True):
+        st.session_state.selected_prompt = "Compare two teams or players"
+        st.session_state.submitted_prompt = "Compare two teams or players"
+        st.rerun()
+with col2:
+    if st.button("Standings", key="standings", use_container_width=True):
+        st.session_state.selected_prompt = "Show current NFL standings"
+        st.session_state.submitted_prompt = "Show current NFL standings"
+        st.rerun()
 
 # Conversation History Display
 if st.session_state.conversation_history:
