@@ -606,6 +606,30 @@ def find_player_in_csv(df, player_name):
 st.set_page_config(page_title="NFL Player Analyst", layout="wide", page_icon="🏈")
 
 # Custom CSS for better table styling and visual enhancements
+# Start top section container
+st.markdown('''
+    <div style="
+        border: 2px solid #28a745;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        background: linear-gradient(135deg, rgba(40, 167, 69, 0.05) 0%, rgba(32, 201, 151, 0.05) 100%);
+        box-shadow: 0 4px 6px rgba(40, 167, 69, 0.1);
+    ">
+''', unsafe_allow_html=True)
+
+# Start top section container
+st.markdown('''
+    <div style="
+        border: 2px solid #28a745;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        background: linear-gradient(135deg, rgba(40, 167, 69, 0.05) 0%, rgba(32, 201, 151, 0.05) 100%);
+        box-shadow: 0 4px 6px rgba(40, 167, 69, 0.1);
+    ">
+''', unsafe_allow_html=True)
+
 st.markdown("""
 <style>
     /* Custom styling for better visual experience */
@@ -863,6 +887,18 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Start top section container
+st.markdown('''
+    <div style="
+        border: 2px solid #28a745;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        background: linear-gradient(135deg, rgba(40, 167, 69, 0.05) 0%, rgba(32, 201, 151, 0.05) 100%);
+        box-shadow: 0 4px 6px rgba(40, 167, 69, 0.1);
+    ">
+''', unsafe_allow_html=True)
 
 # Compact main header
 st.markdown("""
@@ -1791,7 +1827,11 @@ if st.session_state.conversation_history:
             st.markdown(f"**Q{i}:** {question}")
             st.markdown(f"**A{i}:** {answer[:200]}..." if len(answer) > 200 else f"**A{i}:** {answer}")
             if i < len(st.session_state.conversation_history[-3:]):
-                st.markdown("---")
+                st.markdown('<div class="gradient-divider-green"></div>', unsafe_allow_html=True)
+
+# End top section container
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)  # Spacer
 
 # Follow-up Question Interface (appears after first analysis)
 if st.session_state.follow_up_mode and st.session_state.last_analysis_data:
@@ -1888,7 +1928,7 @@ if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_p
                     # Don't clear the submitted prompt here - let user see the question being processed
                     
                     # Enhanced Smart follow-up suggestions for direct LLM responses
-                    st.markdown("---")
+                    st.markdown('<div class="gradient-divider-green"></div>', unsafe_allow_html=True)
                     st.markdown("### 🔄 Continue Your Analysis")
                     smart_suggestions = generate_smart_followup_suggestions(
                         current_question, response_text, st.session_state.last_analysis_data
@@ -2284,7 +2324,7 @@ if st.session_state.get('submitted_prompt') and str(st.session_state.submitted_p
                                 st.session_state.follow_up_mode = True
                                 
                                 # Enhanced Smart follow-up suggestions based on content
-                                st.markdown("---")
+                                st.markdown('<div class="gradient-divider-green"></div>', unsafe_allow_html=True)
                                 st.markdown("### 🔄 Continue Your Analysis")
                                 smart_suggestions = generate_smart_followup_suggestions(
                                     processed_prompt, response_text, st.session_state.last_analysis_data
